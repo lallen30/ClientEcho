@@ -29,7 +29,7 @@ ClientEcho is a web application that efficiently manages and analyzes client fee
 1. Clone the repository:
 
    ```
-   git clone https://github.com/yourusername/clientecho.git
+   git clone https://github.com/lallen30/ClientEcho.git
    cd clientecho
    ```
 
