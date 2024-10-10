@@ -48,6 +48,7 @@
         .issue img {
             max-width: 100%;
             height: auto;
+            margin-top: 10px;
         }
         a {
             color: #0066cc;
@@ -108,12 +109,15 @@
                         {% for issue in video.issues %}
                             <li class="issue">
                                 <p><strong>Summary:</strong> {{ issue.summary | e }}</p>
-                                {% if issue.timestamp %}
-                                    <p><strong>Timestamp:</strong> {{ issue.timestamp }} seconds</p>
+                                {% if issue.start_timestamp %}
+                                    <p><strong>Start Timestamp:</strong> {{ issue.start_timestamp }} seconds</p>
                                 {% endif %}
-                                {% if issue.image_path %}
-                                    <img src="/{{ issue.image_path | e }}" alt="Screenshot of issue at {{ issue.timestamp }} seconds">
+                                {% if issue.end_timestamp %}
+                                    <p><strong>End Timestamp:</strong> {{ issue.end_timestamp }} seconds</p>
                                 {% endif %}
+                                {% for image_path in issue.get_image_paths() %}
+                                    <img src="{{ url_for('serve_project_file', filename=image_path) }}" alt="Screenshot of issue">
+                                {% endfor %}
                             </li>
                         {% endfor %}
                         </ul>

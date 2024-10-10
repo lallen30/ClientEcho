@@ -1,5 +1,6 @@
 import os
 import re
+import json
 from flask import Flask, request, render_template, jsonify, redirect, url_for, escape, send_from_directory
 from werkzeug.utils import secure_filename
 from pydub import AudioSegment
@@ -31,6 +32,10 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100 MB limit
 
+# Set the projects folder
+PROJECTS_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'projects')
+os.makedirs(PROJECTS_FOLDER, exist_ok=True)
+
 # Allowed extensions
 ALLOWED_EXTENSIONS = {'mp4', 'avi', 'mov', 'mkv'}
 
@@ -55,9 +60,16 @@ class Video(db.Model):
 class Issue(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     summary = db.Column(db.Text, nullable=False)
-    timestamp = db.Column(db.Float)
+    start_timestamp = db.Column(db.Float)
+    end_timestamp = db.Column(db.Float)
     video_id = db.Column(db.Integer, db.ForeignKey('video.id'), nullable=False)
-    image_path = db.Column(db.String(200))
+    image_paths = db.Column(db.Text)  # Store multiple image paths as JSON
+
+    def get_image_paths(self):
+        return json.loads(self.image_paths) if self.image_paths else []
+
+    def set_image_paths(self, paths):
+        self.image_paths = json.dumps(paths)
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -87,39 +99,32 @@ def analyze_transcript(transcript):
     try:
         logging.info("Analyzing transcript")
         segments = transcript['segments']
-        prompt = """
-Analyze the following transcript segments and extract a list of issues described by the user.
-For each issue, provide:
-1. A brief summary of the issue (start with "Summary:")
-2. The exact start timestamp where the issue is first mentioned (start with "Start:")
-3. The exact end timestamp where the discussion of the issue concludes (start with "End:")
-
-Format each issue as follows:
-Issue:
-Summary: [Brief description of the issue]
-Start: [Start timestamp in seconds]
-End: [End timestamp in seconds]
-
-Segments:
-"""
+        reviews = []
+        current_review = None
 
         for segment in segments:
-            prompt += f"[{segment['start']:.2f} - {segment['end']:.2f}] {segment['text']}\n"
+            text = segment['text'].strip().lower()
+            if "start review" in text:
+                if current_review:
+                    reviews.append(current_review)
+                current_review = {
+                    'start': segment['start'],
+                    'text': [],
+                    'end': None
+                }
+            elif "end review" in text and current_review:
+                current_review['end'] = segment['end']
+                current_review['text'] = ' '.join(current_review['text'])
+                reviews.append(current_review)
+                current_review = None
+            elif current_review:
+                current_review['text'].append(segment['text'])
 
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "You are an assistant that extracts issues from transcript segments with precise timestamps."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=1500,
-            temperature=0,
-            timeout=60  # Set a 60-second timeout
-        )
+        if current_review:
+            reviews.append(current_review)
 
-        issues = response['choices'][0]['message']['content']
-        logging.info("Transcript analysis completed")
-        return issues
+        return reviews
+
     except Exception as e:
         logging.error(f"Error analyzing transcript: {e}")
         raise
@@ -152,61 +157,40 @@ def extract_frame(video_path, timestamp, output_path):
         logging.error(f"Unexpected error in extract_frame: {str(e)}")
         raise
 
-def save_issue_data(video_id, issue_number, issue_summary, timestamp, video_path):
+def save_issue_data(video_id, issue_number, review_data, video_path):
     try:
         logging.info(f"Saving issue data for video {video_id}, issue {issue_number}")
-        issue_folder = os.path.join('projects', f'video_{video_id}', f'issue_{issue_number}')
+        issue_folder = os.path.join(PROJECTS_FOLDER, f'video_{video_id}', f'issue_{issue_number}')
         os.makedirs(issue_folder, exist_ok=True)
 
         # Save the issue summary
         with open(os.path.join(issue_folder, 'summary.txt'), 'w') as f:
-            f.write(issue_summary)
+            f.write(review_data['text'])
 
         # Extract and save the frame
-        image_path = os.path.join(issue_folder, 'image.jpg')
-        extract_frame(video_path, timestamp, image_path)
+        image_filename = f'image_{issue_number}.jpg'
+        image_path = os.path.join(issue_folder, image_filename)
+        extract_frame(video_path, review_data['start'], image_path)
 
         # Save issue to database
-        issue = Issue(summary=issue_summary, timestamp=timestamp, video_id=video_id, image_path=image_path)
+        relative_image_path = os.path.join(f'video_{video_id}', f'issue_{issue_number}', image_filename)
+        issue = Issue(
+            summary=review_data['text'],
+            start_timestamp=review_data['start'],
+            end_timestamp=review_data['end'],
+            video_id=video_id,
+            image_paths=json.dumps([relative_image_path])
+        )
         db.session.add(issue)
         db.session.commit()
         logging.info(f"Issue data saved successfully for video {video_id}, issue {issue_number}")
+        logging.info(f"Image saved at: {image_path}")
+        logging.info(f"Relative image path: {relative_image_path}")
 
     except Exception as e:
         logging.error(f"Error saving issue data: {e}")
         db.session.rollback()
         raise
-
-def parse_issues(issues_text):
-    issues = []
-    current_issue = {}
-    for line in issues_text.split('\n'):
-        line = line.strip()
-        if line.startswith("Issue:"):
-            if current_issue:
-                issues.append(current_issue)
-            current_issue = {}
-        elif line.startswith("Summary:"):
-            current_issue['summary'] = line[8:].strip()
-        elif line.startswith("Start:"):
-            try:
-                current_issue['start_timestamp'] = float(line[6:].strip())
-            except ValueError:
-                logging.warning(f"Invalid start timestamp format: {line}")
-        elif line.startswith("End:"):
-            try:
-                current_issue['end_timestamp'] = float(line[4:].strip())
-            except ValueError:
-                logging.warning(f"Invalid end timestamp format: {line}")
-
-    if current_issue:
-        issues.append(current_issue)
-
-    logging.info(f"Parsed {len(issues)} issues")
-    for i, issue in enumerate(issues):
-        logging.info(f"Issue {i+1}: {issue}")
-
-    return issues
 
 def process_video(video_id):
     try:
@@ -229,22 +213,13 @@ def process_video(video_id):
         
         video.status = 'Analyzing Transcript'
         db.session.commit()
-        issues_text = analyze_transcript(transcript)
+        reviews = analyze_transcript(transcript)
 
         video.status = 'Processing Issues'
         db.session.commit()
-        issues = parse_issues(issues_text)
 
-        for i, issue in enumerate(issues, 1):
-            summary = issue.get('summary', 'No summary provided')
-            if 'start_timestamp' in issue:
-                timestamp = issue['start_timestamp']
-                save_issue_data(video.id, i, summary, timestamp, video_path)
-            else:
-                logging.warning(f"Issue {i} has no start timestamp. Skipping frame extraction.")
-                # Save issue summary without extracting frame
-                issue = Issue(summary=summary, video_id=video.id)
-                db.session.add(issue)
+        for i, review in enumerate(reviews, 1):
+            save_issue_data(video.id, i, review, video_path)
         
         video.processed = True
         video.status = 'Completed'
@@ -338,7 +313,8 @@ def video_status(video_id):
 
 @app.route('/projects/<path:filename>')
 def serve_project_file(filename):
-    return send_from_directory('projects', filename)
+    logging.info(f"Serving project file: {filename}")
+    return send_from_directory(PROJECTS_FOLDER, filename)
 
 if __name__ == '__main__':
     app.run(debug=False, host='0.0.0.0')
