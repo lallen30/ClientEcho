@@ -41,6 +41,10 @@ ALLOWED_EXTENSIONS = {'mp4', 'avi', 'mov', 'mkv'}
 
 # Configure OpenAI API
 openai.api_key = os.getenv('OPENAI_API_KEY')
+if not openai.api_key:
+    logging.error("OpenAI API key not found in .env file. Title generation will be disabled.")
+else:
+    logging.info("OpenAI API key loaded from .env file.")
 
 # Database models
 class Project(db.Model):
@@ -157,15 +161,53 @@ def extract_frame(video_path, timestamp, output_path):
         logging.error(f"Unexpected error in extract_frame: {str(e)}")
         raise
 
+def generate_title(summary):
+    if not openai.api_key:
+        logging.warning("OpenAI API key not set. Returning default title.")
+        return "Untitled Issue"
+
+    client = get_openai_client()
+    try:
+        if hasattr(client, 'chat'):
+            # New API
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant that generates concise titles for issue summaries. Do not include quotation marks in your response."},
+                    {"role": "user", "content": f"Generate a short, descriptive title for this issue summary:\n\n{summary}"}
+                ],
+                max_tokens=50
+            )
+            return response.choices[0].message.content.strip()
+        else:
+            # Old API
+            response = client.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant that generates concise titles for issue summaries. Do not include quotation marks in your response."},
+                    {"role": "user", "content": f"Generate a short, descriptive title for this issue summary:\n\n{summary}"}
+                ],
+                max_tokens=50
+            )
+            return response.choices[0].message['content'].strip()
+    except Exception as e:
+        logging.error(f"Error generating title with OpenAI: {e}")
+        return "Untitled Issue"
+
 def save_issue_data(video_id, issue_number, review_data, video_path):
     try:
         logging.info(f"Saving issue data for video {video_id}, issue {issue_number}")
         issue_folder = os.path.join(PROJECTS_FOLDER, f'video_{video_id}', f'issue_{issue_number}')
         os.makedirs(issue_folder, exist_ok=True)
 
-        # Save the issue summary
+        # Generate title using OpenAI
+        title = generate_title(review_data['text'])
+        logging.info(f"Generated title: {title}")
+
+        # Save the issue summary with title
+        summary_with_title = f"Title: {title}\n\nSummary: {review_data['text']}"
         with open(os.path.join(issue_folder, 'summary.txt'), 'w') as f:
-            f.write(review_data['text'])
+            f.write(summary_with_title)
 
         # Extract and save the frame
         image_filename = f'image_{issue_number}.jpg'
@@ -175,7 +217,7 @@ def save_issue_data(video_id, issue_number, review_data, video_path):
         # Save issue to database
         relative_image_path = os.path.join(f'video_{video_id}', f'issue_{issue_number}', image_filename)
         issue = Issue(
-            summary=review_data['text'],
+            summary=summary_with_title,
             start_timestamp=review_data['start'],
             end_timestamp=review_data['end'],
             video_id=video_id,
@@ -315,6 +357,12 @@ def video_status(video_id):
 def serve_project_file(filename):
     logging.info(f"Serving project file: {filename}")
     return send_from_directory(PROJECTS_FOLDER, filename)
+
+def get_openai_client():
+    if hasattr(openai, 'OpenAI'):
+        return openai.OpenAI()
+    else:
+        return openai
 
 if __name__ == '__main__':
     app.run(debug=False, host='0.0.0.0')
