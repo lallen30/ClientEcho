@@ -1,239 +1,254 @@
-<!DOCTYPE html>
-<html lang="en">
+{% extends "base.html" %}
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ClientEcho - Project Detail</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            line-height: 1.6;
+{% block title %}ClientEcho - Project Detail{% endblock %}
+
+{% block content %}
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        line-height: 1.6;
+    }
+
+    h1,
+    h2,
+    h3 {
+        color: #333;
+    }
+
+    form {
+        margin-bottom: 20px;
+    }
+
+    input[type="file"],
+    input[type="submit"] {
+        padding: 10px;
+        margin-right: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+    }
+
+    input[type="submit"] {
+        background-color: #0066cc;
+        color: white;
+        cursor: pointer;
+    }
+
+    input[type="submit"]:hover {
+        background-color: #0052a3;
+    }
+
+    ul {
+        list-style-type: none;
+        padding: 0;
+    }
+
+    li {
+        margin-bottom: 20px;
+    }
+
+    .issue {
+        background-color: #f0f0f0;
+        padding: 10px;
+        margin-bottom: 10px;
+        border-radius: 5px;
+    }
+
+    .issue img {
+        max-width: 100%;
+        height: auto;
+        margin-top: 10px;
+    }
+
+    a {
+        color: #0066cc;
+        text-decoration: none;
+    }
+
+    a:hover {
+        text-decoration: underline;
+    }
+
+    .loader {
+        border: 16px solid #f3f3f3;
+        border-radius: 50%;
+        border-top: 16px solid #3498db;
+        width: 60px;
+        height: 60px;
+        animation: spin 2s linear infinite;
+        display: inline-block;
+        vertical-align: middle;
+        margin-right: 10px;
+    }
+
+    @keyframes spin {
+        0% {
+            transform: rotate(0deg);
         }
 
-        h1,
-        h2,
-        h3 {
-            color: #333;
+        100% {
+            transform: rotate(360deg);
         }
+    }
 
-        form {
-            margin-bottom: 20px;
-        }
+    .status {
+        font-weight: bold;
+        margin-left: 10px;
+    }
 
-        input[type="file"],
-        input[type="submit"] {
-            padding: 10px;
-            margin-right: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-        }
+    .error {
+        color: #ff0000;
+    }
+</style>
+<h1>Project: {{ project.name | e }}</h1>
 
-        input[type="submit"] {
-            background-color: #0066cc;
-            color: white;
-            cursor: pointer;
-        }
+<h2>Upload New Video</h2>
+<form id="uploadForm" action="{{ url_for('upload_video', project_id=project.id) }}" method="post"
+    enctype="multipart/form-data">
+    <label for="video_file">Select video file:</label>
+    <input type="file" id="video_file" name="video_file" accept=".mp4,.avi,.mov,.mkv" required
+        aria-label="Select video file">
+    <input type="submit" value="Upload and Process">
+</form>
 
-        input[type="submit"]:hover {
-            background-color: #0052a3;
-        }
-
-        ul {
-            list-style-type: none;
-            padding: 0;
-        }
-
-        li {
-            margin-bottom: 20px;
-        }
-
-        .issue {
-            background-color: #f0f0f0;
-            padding: 10px;
-            margin-bottom: 10px;
-            border-radius: 5px;
-        }
-
-        .issue img {
-            max-width: 100%;
-            height: auto;
-            margin-top: 10px;
-        }
-
-        a {
-            color: #0066cc;
-            text-decoration: none;
-        }
-
-        a:hover {
-            text-decoration: underline;
-        }
-
-        .loader {
-            border: 16px solid #f3f3f3;
-            border-radius: 50%;
-            border-top: 16px solid #3498db;
-            width: 60px;
-            height: 60px;
-            animation: spin 2s linear infinite;
-            display: inline-block;
-            vertical-align: middle;
-            margin-right: 10px;
-        }
-
-        @keyframes spin {
-            0% {
-                transform: rotate(0deg);
-            }
-
-            100% {
-                transform: rotate(360deg);
-            }
-        }
-
-        .status {
-            font-weight: bold;
-            margin-left: 10px;
-        }
-
-        .error {
-            color: #ff0000;
-        }
-    </style>
-</head>
-
-<body>
-    <h1>Project: {{ project.name | e }}</h1>
-
-    <h2>Upload New Video</h2>
-    <form id="uploadForm" action="{{ url_for('upload_video', project_id=project.id) }}" method="post"
-        enctype="multipart/form-data">
-        <label for="video_file">Select video file:</label>
-        <input type="file" id="video_file" name="video_file" accept=".mp4,.avi,.mov,.mkv" required
-            aria-label="Select video file">
-        <input type="submit" value="Upload and Process">
-    </form>
-
-    <h2>Videos</h2>
-    {% if project.videos %}
-    <ul id="videoList">
-        {% for video in project.videos %}
-        <li id="video-{{ video.id }}">
-            <h3>{{ video.filename | e }}</h3>
-            <div class="status-container">
-                {% if not video.processed %}
-                <div class="loader" aria-label="Processing video"></div>
-                {% endif %}
-                <span class="status">Status: {{ video.status }}</span>
-            </div>
-            {% if video.processed %}
-            {% if video.issues %}
-            <ul>
-                {% for issue in video.issues %}
-                <li class="issue">
-                    {% set issue_parts = issue.summary.split('\n\n', 1) %}
+<h2>Videos</h2>
+{% if project.videos %}
+<ul id="videoList">
+    {% for video in project.videos %}
+    <li id="video-{{ video.id }}">
+        <h3>{{ video.filename | e }}</h3>
+        <div class="status-container">
+            {% if not video.processed %}
+            <div class="loader" aria-label="Processing video"></div>
+            {% endif %}
+            <span class="status">Status: {{ video.status }}</span>
+        </div>
+        {% if video.processed %}
+        {% if video.issues %}
+        <ul>
+            {% for issue in video.issues %}
+            <li class="issue">
+                {% set issue_parts = issue.summary.split('\n\n', 1) %}
+                <h4>
+                    {% if ':' in issue_parts[0] %}
                     {% set title_parts = issue_parts[0].split(': ', 1) %}
-                    {% set summary_parts = issue_parts[1].split(': ', 1) %}
-                    <h4><strong>{{ title_parts[0] }}:</strong> <span style="font-weight: normal;">{{ title_parts[1]
-                            }}</span></h4>
-                    <p><strong>{{ summary_parts[0] }}:</strong> {{ summary_parts[1] }}</p>
-                    {% if issue.start_timestamp %}
-                    <p><strong>Start Timestamp:</strong> {{ issue.start_timestamp }} seconds</p>
+                    <strong>{{ title_parts[0] }}:</strong> <span style="font-weight: normal;">{{ title_parts[1]
+                        }}</span>
+                    {% else %}
+                    {{ issue_parts[0] }}
                     {% endif %}
-                    {% if issue.end_timestamp %}
-                    <p><strong>End Timestamp:</strong> {{ issue.end_timestamp }} seconds</p>
-                    {% endif %}
-                    {% for image_path in issue.get_image_paths() %}
-                    <img src="{{ url_for('serve_project_file', filename=image_path) }}" alt="Screenshot of issue">
-                    {% endfor %}
-                </li>
+                </h4>
+                {% if issue_parts|length > 1 %}
+                {% set summary_parts = issue_parts[1].split(': ', 1) %}
+                {% if summary_parts|length > 1 %}
+                <p><strong>{{ summary_parts[0] }}:</strong> {{ summary_parts[1] }}</p>
+                {% else %}
+                <p>{{ issue_parts[1] }}</p>
+                {% endif %}
+                {% endif %}
+                {% if issue.start_timestamp %}
+                <p><strong>Start Timestamp:</strong> {{ issue.start_timestamp }} seconds</p>
+                {% endif %}
+                {% if issue.end_timestamp %}
+                <p><strong>End Timestamp:</strong> {{ issue.end_timestamp }} seconds</p>
+                {% endif %}
+                {% for image_path in issue.get_image_paths() %}
+                <img src="{{ url_for('serve_project_file', filename=image_path) }}" alt="Screenshot of issue">
                 {% endfor %}
-            </ul>
-            {% else %}
-            <p>No issues found in this video.</p>
-            {% endif %}
-            {% endif %}
-        </li>
-        {% endfor %}
-    </ul>
-    {% else %}
-    <p>No videos uploaded yet. Upload a video to get started.</p>
-    {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p>No issues found in this video.</p>
+        {% endif %}
+        {% endif %}
+    </li>
+    {% endfor %}
+</ul>
+{% else %}
+<p>No videos uploaded yet. Upload a video to get started.</p>
+{% endif %}
 
-    <p><a href="{{ url_for('home') }}">Back to Home</a></p>
+<p><a href="{{ url_for('home') }}">Back to Home</a></p>
 
-    <script>
-        document.getElementById('uploadForm').addEventListener('submit', function (event) {
-            event.preventDefault() // Prevent the default form submission
-            const formData = new FormData(this)
+<script>
+    document.getElementById('uploadForm').addEventListener('submit', function (event) {
+        event.preventDefault()
+        const formData = new FormData(this)
 
-            fetch(this.action, {
-                method: 'POST',
-                body: formData
-            })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.message) {
-                        console.log(data.message)
-                        location.reload() // Reload the page to show the new video
-                    } else if (data.error) {
-                        console.error(data.error)
-                        alert('Error uploading video: ' + data.error)
-                    }
-                })
-                .catch(error => {
-                    console.error('Error uploading video:', error)
-                    alert('Error uploading video. Please try again.')
-                })
+        fetch(this.action, {
+            method: 'POST',
+            body: formData
         })
+            .then(response => {
+                if (!response.ok) {
+                    return response.text().then(text => {
+                        try {
+                            return JSON.parse(text)
+                        } catch (e) {
+                            throw new Error(text)
+                        }
+                    })
+                }
+                return response.json()
+            })
+            .then(data => {
+                if (data.error) {
+                    throw new Error(data.error)
+                }
+                console.log(data.message)
+                alert(data.message)
+                location.reload()
+            })
+            .catch(error => {
+                console.error('Error uploading video:', error)
+                alert('Error uploading video: ' + error.message)
+            })
+    })
 
-        function updateVideoStatus(videoId) {
-            fetch(`/video/${videoId}/status`)
-                .then(response => response.json())
-                .then(data => {
-                    const videoElement = document.getElementById(`video-${videoId}`)
-                    if (videoElement) {
-                        const statusContainer = videoElement.querySelector('.status-container')
-                        const statusSpan = statusContainer.querySelector('.status')
-                        statusSpan.textContent = `Status: ${data.status}`
+    function updateVideoStatus(videoId) {
+        fetch(`/video/${videoId}/status`)
+            .then(response => response.json())
+            .then(data => {
+                const videoElement = document.getElementById(`video-${videoId}`)
+                if (videoElement) {
+                    const statusContainer = videoElement.querySelector('.status-container')
+                    const statusSpan = statusContainer.querySelector('.status')
+                    statusSpan.textContent = `Status: ${data.status}`
 
-                        if (data.processed) {
-                            const loader = statusContainer.querySelector('.loader')
-                            if (loader) {
-                                loader.remove()
-                            }
-                            if (!data.status.startsWith('Error')) {
-                                location.reload() // Reload to show processed results
-                            } else {
-                                statusSpan.classList.add('error')
-                            }
+                    if (data.processed) {
+                        const loader = statusContainer.querySelector('.loader')
+                        if (loader) {
+                            loader.remove()
+                        }
+                        if (!data.status.startsWith('Error')) {
+                            location.reload() // Reload to show processed results
+                        } else {
+                            statusSpan.classList.add('error')
                         }
                     }
-                })
-                .catch(error => console.error('Error updating video status:', error))
-        }
+                }
+            })
+            .catch(error => console.error('Error updating video status:', error))
+    }
 
-        function startPolling() {
-            const videoList = document.getElementById('videoList')
-            if (videoList) {
-                const videos = videoList.getElementsByTagName('li')
-                for (let video of videos) {
-                    const videoId = video.id.split('-')[1]
-                    const statusContainer = video.querySelector('.status-container')
-                    if (statusContainer && statusContainer.querySelector('.loader')) {
-                        setInterval(() => updateVideoStatus(videoId), 5000) // Poll every 5 seconds
-                    }
+    function startPolling() {
+        const videoList = document.getElementById('videoList')
+        if (videoList) {
+            const videos = videoList.getElementsByTagName('li')
+            for (let video of videos) {
+                const videoId = video.id.split('-')[1]
+                const statusContainer = video.querySelector('.status-container')
+                if (statusContainer && statusContainer.querySelector('.loader')) {
+                    setInterval(() => updateVideoStatus(videoId), 5000) // Poll every 5 seconds
                 }
             }
         }
+    }
 
-        // Start polling when the page loads
-        window.addEventListener('load', startPolling);
-    </script>
-</body>
-
-</html>
+    // Start polling when the page loads
+    window.addEventListener('load', startPolling);
+</script>
+{% endblock %}

@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y \
   ffmpeg \
   build-essential \
   curl \
+  sqlite3 \
   && rm -rf /var/lib/apt/lists/*
 
 # Install Rust
@@ -24,9 +25,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Runtime stage
 FROM python:3.9-slim
 
-# Install ffmpeg
+# Install ffmpeg and sqlite3
 RUN apt-get update && apt-get install -y \
   ffmpeg \
+  sqlite3 \
   && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory

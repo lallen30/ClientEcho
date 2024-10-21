@@ -54,12 +54,12 @@ ClientEcho is a web application that efficiently manages and analyzes client fee
 5. Run the Docker container:
 
    ```
-   docker run -p 5001:5000 -v ~/clientecho_uploads:/app/secure_uploads clientecho
+   docker run -p 8001:5000 -v ~/clientecho_uploads:/app/secure_uploads clientecho
    ```
 
    Note: The `-v` option creates a volume mount. The path before the colon (`~/clientecho_uploads`) is the directory on your host machine, and the path after the colon (`/app/secure_uploads`) is where it will be mounted inside the container.
 
-6. Access the application at `http://localhost:5001`
+6. Access the application at `http://localhost:8001`
 
 ## Usage
 

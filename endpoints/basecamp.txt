@@ -1,0 +1,13 @@
+@app.route('/')
+@app.route('/home')
+@app.route('/login')
+@app.route('/oauth/callback')
+@app.route('/projects')
+
+@app.route('/todos')
+@app.route('/todo_lists/<project_id>')
+@app.route('/todos/<project_id>/<todolist_id>')
+@app.route('/test')
+@app.route('/hello')
+@app.route('/create_todo', methods=['POST'])
+@app.route('/upload_attachment/<project_id>', methods=['POST'])
