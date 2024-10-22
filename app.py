@@ -177,15 +177,50 @@ def extract_frame(video_path, timestamp, output_path):
         logging.error(f"Unexpected error in extract_frame: {str(e)}")
         raise
 
+def generate_title(summary):
+    try:
+        logging.info(f"Attempting to generate title for summary: {summary[:100]}...")  # Log first 100 chars of summary
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that summarizes text in 5 words."},
+                {"role": "user", "content": f"Summarize the following in 8 words:\n\n{summary}"}
+            ],
+            max_tokens=20,
+            n=1,
+            temperature=0.7,
+        )
+        title = response.choices[0].message['content'].strip()
+        logging.info(f"Raw OpenAI response: {response}")
+        logging.info(f"Generated title: {title}")
+        if not title:
+            raise ValueError("OpenAI returned an empty title")
+        return title
+    except Exception as e:
+        logging.error(f"Error generating title with OpenAI: {e}")
+        return None
+
 def save_issue_data(video_id, issue_number, review_data, video_path):
     try:
         logging.info(f"Saving issue data for video {video_id}, issue {issue_number}")
         issue_folder = os.path.join(PROJECTS_FOLDER, f'video_{video_id}', f'issue_{issue_number}')
         os.makedirs(issue_folder, exist_ok=True)
 
+        # Generate title using OpenAI
+        title = generate_title(review_data['text'])
+        logging.info(f"Generated title for issue {issue_number}: {title}")
+        
+        if title is None:
+            # If title generation failed, use the first 8 words of the content
+            title = ' '.join(review_data['text'].split()[:8])
+            logging.warning(f"Using fallback title: {title}")
+
+        # Prepare the issue summary with the generated title
+        issue_summary = f"{title}\n\nContent: {review_data['text']}"
+
         # Save the issue summary
         with open(os.path.join(issue_folder, 'summary.txt'), 'w') as f:
-            f.write(review_data['text'])
+            f.write(issue_summary)
 
         # Extract and save the frame
         image_filename = f'image_{issue_number}.jpg'
@@ -195,7 +230,7 @@ def save_issue_data(video_id, issue_number, review_data, video_path):
         # Save issue to database
         relative_image_path = os.path.join(f'video_{video_id}', f'issue_{issue_number}', image_filename)
         issue = Issue(
-            summary=review_data['text'],
+            summary=issue_summary,
             start_timestamp=review_data['start'],
             end_timestamp=review_data['end'],
             video_id=video_id,
@@ -715,6 +750,12 @@ def init_db():
 if __name__ == '__main__':
     init_db()
     app.run(debug=False, host='0.0.0.0')
+
+
+
+
+
+
 
 
 

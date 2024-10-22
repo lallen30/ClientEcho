@@ -131,22 +131,9 @@
             {% for issue in video.issues %}
             <li class="issue">
                 {% set issue_parts = issue.summary.split('\n\n', 1) %}
-                <h4>
-                    {% if ':' in issue_parts[0] %}
-                    {% set title_parts = issue_parts[0].split(': ', 1) %}
-                    <strong>{{ title_parts[0] }}:</strong> <span style="font-weight: normal;">{{ title_parts[1]
-                        }}</span>
-                    {% else %}
-                    {{ issue_parts[0] }}
-                    {% endif %}
-                </h4>
+                <h4>{{ issue_parts[0] }}</h4>
                 {% if issue_parts|length > 1 %}
-                {% set summary_parts = issue_parts[1].split(': ', 1) %}
-                {% if summary_parts|length > 1 %}
-                <p><strong>{{ summary_parts[0] }}:</strong> {{ summary_parts[1] }}</p>
-                {% else %}
                 <p>{{ issue_parts[1] }}</p>
-                {% endif %}
                 {% endif %}
                 {% if issue.start_timestamp %}
                 <p><strong>Start Timestamp:</strong> {{ issue.start_timestamp }} seconds</p>
