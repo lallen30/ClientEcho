@@ -60,10 +60,9 @@
 
 <body>
   <nav>
-    <a href="{{ url_for('home') }}">Home</a>
     {% if 'oauth_token' in session %}
-    <a href="{{ url_for('projects') }}">Create New Todo</a>
-    <a href="{{ url_for('home') }}">Upload Video</a>
+    <a href="{{ url_for('home') }}">Upload Video & Create Todo(s)</a>
+    <a href="{{ url_for('projects') }}">Create A New Todo</a>
 
     {% else %}
     <a href="{{ url_for('login') }}">Login with Basecamp</a>

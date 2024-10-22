@@ -77,14 +77,36 @@
       margin-top: 10px;
       font-style: italic;
     }
+
+    #new-todolist-container {
+      margin-top: 20px;
+      margin-bottom: 20px;
+    }
+
+    #new-todolist-name {
+      width: 70%;
+      padding: 8px;
+      margin-right: 10px;
+    }
+
+    #create-todolist-btn {
+      padding: 8px 15px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+
+    #create-todolist-btn:hover {
+      background-color: #45a049;
+    }
   </style>
 </head>
 
 <body>
   <nav>
-    <a href="/home">Home</a>
-    <a href="/projects">Create New Todo</a>
-    <a href="/home">Upload Video</a>
+    <a href="/home">Upload Video & Create Todo(s)</a>
+    <a href="/projects">Create A New Todo</a>
   </nav>
 
   <h1>Basecamp Projects</h1>
@@ -95,6 +117,11 @@
     <option value="{{ project.id }}">{{ project.name }}</option>
     {% endfor %}
   </select>
+
+  <div id="new-todolist-container">
+    <input type="text" id="new-todolist-name" placeholder="New Todo List Name">
+    <button id="create-todolist-btn" onclick="createTodoList()">Create Todo List</button>
+  </div>
 
   <div id="todo-lists">
     <h2>Todo Lists</h2>
@@ -127,31 +154,88 @@
       submitTodoButton.disabled = true
 
       if (selectedProjectId) {
-        fetch('/todo_lists/' + selectedProjectId)
-          .then(response => {
-            if (!response.ok) {
-              return response.json().then(err => { throw err })
-            }
-            return response.json()
-          })
-          .then(data => {
-            if (!data || data.length === 0) {
-              todoListSelect.innerHTML = '<option value="">No todo lists found</option>'
-            } else {
-              data.forEach(todoList => {
-                var option = document.createElement('option')
-                option.value = todoList.id
-                option.textContent = todoList.name
-                todoListSelect.appendChild(option)
-              })
-            }
-          })
-          .catch(error => {
-            console.error('Error:', error)
-            todoListSelect.innerHTML = '<option value="" class="error">Error: ' + (error.error || JSON.stringify(error)) + '</option>'
-          })
+        fetchTodoLists(selectedProjectId)
       }
     })
+
+    function fetchTodoLists(projectId) {
+      fetch('/todo_lists/' + projectId)
+        .then(response => {
+          if (!response.ok) {
+            return response.json().then(err => { throw err })
+          }
+          return response.json()
+        })
+        .then(data => {
+          if (!data || data.length === 0) {
+            todoListSelect.innerHTML = '<option value="">No todo lists found</option>'
+          } else {
+            populateTodoLists(data)
+          }
+        })
+        .catch(error => {
+          console.error('Error:', error)
+          todoListSelect.innerHTML = '<option value="" class="error">Error: ' + (error.error || JSON.stringify(error)) + '</option>'
+        })
+    }
+
+    function populateTodoLists(todoLists) {
+      todoListSelect.innerHTML = '<option value="">Select a todo list</option>'
+      todoLists.forEach(todoList => {
+        var option = document.createElement('option')
+        option.value = todoList.id
+        option.textContent = todoList.name
+        todoListSelect.appendChild(option)
+      })
+    }
+
+    function createTodoList() {
+      const todoListName = document.getElementById('new-todolist-name').value.trim()
+      if (!todoListName) {
+        alert('Please enter a name for the new todo list.')
+        return
+      }
+
+      const selectedProjectId = projectSelect.value
+      if (!selectedProjectId) {
+        alert('Please select a project first.')
+        return
+      }
+
+      fetch('/create_todolist', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          projectId: selectedProjectId,
+          name: todoListName,
+          description: ''  // You can add a description input if needed
+        }),
+      })
+        .then(response => {
+          if (!response.ok) {
+            return response.json().then(err => { throw err })
+          }
+          return response.json()
+        })
+        .then(data => {
+          alert(data.message || 'Todo list created successfully!')
+          // Add the new todo list to the select dropdown
+          const option = new Option(data.name, data.id)
+          todoListSelect.add(option)
+          // Select the newly created todo list
+          todoListSelect.value = data.id
+          // Clear the input field
+          document.getElementById('new-todolist-name').value = ''
+          // Enable the submit button
+          submitTodoButton.disabled = false
+        })
+        .catch(error => {
+          console.error('Error creating todo list:', error)
+          alert('Failed to create todo list. Please try again. Error: ' + error.message)
+        })
+    }
 
     todoListSelect.addEventListener('change', function () {
       submitTodoButton.disabled = !this.value
