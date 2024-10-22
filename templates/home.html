@@ -3,9 +3,8 @@
 {% block title %}ClientEcho - Home{% endblock %}
 
 {% block content %}
-<h1>Welcome to ClientEcho</h1>
 
-<h2>Create a New Project</h2>
+<h2>Select a Basecamp Project</h2>
 <select id="project_select" name="project_name" required aria-label="Select a Basecamp project">
     <option value="">Choose a project</option>
     {% for project in basecamp_projects %}
@@ -13,7 +12,7 @@
     {% endfor %}
 </select>
 
-<h2>Existing Projects</h2>
+<h2>Previous Selected Projects</h2>
 {% if local_projects %}
 <ul>
     {% for project in local_projects %}
