@@ -192,6 +192,29 @@
         margin-top: 10px;
         font-style: italic;
     }
+
+    /* Add these new styles */
+    #new-todolist-container {
+        margin-bottom: 20px;
+    }
+
+    #new-todolist-name {
+        width: 70%;
+        padding: 8px;
+        margin-right: 10px;
+    }
+
+    #create-todolist-btn {
+        padding: 8px 15px;
+        background-color: #4CAF50;
+        color: white;
+        border: none;
+        cursor: pointer;
+    }
+
+    #create-todolist-btn:hover {
+        background-color: #45a049;
+    }
 </style>
 
 <h1>BasecampProject: {{ project.name | e }}</h1>
@@ -203,6 +226,11 @@
     <li class="instruct">When you are finished describing the issue, say "<b>End Review</b>"</li>
     Repeat for each issue through the video recording.
 </ul>
+
+<div id="new-todolist-container">
+    <input type="text" id="new-todolist-name" placeholder="New Todo List Name">
+    <button id="create-todolist-btn" onclick="createTodoList()">Create Todo List</button>
+</div>
 
 <select id="todo-list-select" data-basecamp-project-id="{{ basecamp_project_id }}">
     <option value="">Select a todo list</option>
@@ -480,6 +508,56 @@
             console.error('No image found to upload')
             statusElement.textContent = 'No image found to upload.'
         }
+    }
+
+    function createTodoList() {
+        const todoListName = document.getElementById('new-todolist-name').value.trim()
+        if (!todoListName) {
+            alert('Please enter a name for the new todo list.')
+            return
+        }
+
+        const basecampProjectId = document.getElementById('todo-list-select').getAttribute('data-basecamp-project-id')
+
+        fetch('/create_todolist', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                projectId: basecampProjectId,
+                name: todoListName,
+                description: ''  // You can add a description input if needed
+            }),
+        })
+            .then(response => {
+                if (!response.ok) {
+                    return response.text().then(text => {
+                        try {
+                            return JSON.parse(text)
+                        } catch (e) {
+                            throw new Error(text)
+                        }
+                    })
+                }
+                return response.json()
+            })
+            .then(data => {
+                alert(data.message || 'Todo list created successfully!')
+                // Add the new todo list to the select dropdown
+                const option = new Option(data.name, data.id)
+                document.getElementById('todo-list-select').add(option)
+                // Select the newly created todo list
+                document.getElementById('todo-list-select').value = data.id
+                // Clear the input field
+                document.getElementById('new-todolist-name').value = ''
+                // Show the upload section if it was hidden
+                document.getElementById('uploadSection').style.display = 'block'
+            })
+            .catch(error => {
+                console.error('Error creating todo list:', error)
+                alert('Failed to create todo list. Please try again. Error: ' + error.message)
+            })
     }
 </script>
 {% endblock %}

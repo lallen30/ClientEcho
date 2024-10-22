@@ -592,6 +592,70 @@ def create_todo(token, project_id, todolist_id, title, notes):
         logging.exception(f"An error occurred while creating todo: {str(e)}")
         raise
 
+@app.route('/create_todolist', methods=['POST'])
+@login_required
+def create_todolist():
+    token = session.get('oauth_token')
+    if not token:
+        return jsonify({"error": "No OAuth token found. Please re-authenticate."}), 401
+    
+    data = request.json
+    project_id = data.get('projectId')
+    name = data.get('name')
+    description = data.get('description', '')
+    
+    if not project_id or not name:
+        return jsonify({"error": "Missing required fields"}), 400
+    
+    try:
+        oauth = OAuth2Session(CLIENT_ID, token=token)
+        headers = {
+            'User-Agent': 'YourAppName (yourname@example.com)',
+            'Content-Type': 'application/json'
+        }
+        
+        # First, get the todoset ID for the project
+        project_url = f'https://3.basecampapi.com/{BASECAMP_ACCOUNT_ID}/projects/{project_id}.json'
+        project_response = oauth.get(project_url, headers=headers)
+        project_response.raise_for_status()
+        project_data = project_response.json()
+        
+        todoset = next((dock for dock in project_data.get('dock', []) if dock['name'] == 'todoset'), None)
+        if not todoset:
+            return jsonify({"error": "Todoset not found in project"}), 404
+        
+        todoset_id = todoset['id']
+        
+        # Now create the todo list using the correct URL structure
+        create_todolist_url = f'https://3.basecampapi.com/{BASECAMP_ACCOUNT_ID}/buckets/{project_id}/todosets/{todoset_id}/todolists.json'
+        
+        data = {
+            'name': name,
+            'description': description
+        }
+        
+        logging.info(f"Sending POST request to create todolist: URL={create_todolist_url}, Data={data}")
+        response = oauth.post(create_todolist_url, headers=headers, json=data)
+        
+        logging.info(f"Received response: Status={response.status_code}, Content={response.text[:1000]}")
+        response.raise_for_status()
+        
+        if response.status_code == 201:
+            new_todolist = response.json()
+            return jsonify({
+                "id": new_todolist['id'],
+                "name": new_todolist['name'],
+                "message": "Todo list created successfully!"
+            }), 201
+        else:
+            return jsonify({"error": "Failed to create todo list"}), 500
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Request error creating todo list: {str(e)}")
+        return jsonify({"error": f"An error occurred while creating the todo list: {str(e)}"}), 500
+    except Exception as e:
+        logging.error(f"Unexpected error creating todo list: {str(e)}")
+        return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
+
 @app.route('/create_todo', methods=['POST'])
 def handle_create_todo():
     token = session.get('oauth_token')
@@ -793,6 +857,19 @@ def init_db():
 if __name__ == '__main__':
     init_db()
     app.run(debug=False, host='0.0.0.0')
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
