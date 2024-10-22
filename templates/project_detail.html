@@ -45,8 +45,20 @@
         padding: 0;
     }
 
+    ul#instructions {
+        list-style-type: disc;
+        padding: 0;
+    }
+
+    list-style-type: disc;
+
     li {
         margin-bottom: 20px;
+    }
+
+    li.instruct {
+        margin-left: 30px;
+        margin-bottom: 0 !important;
     }
 
     .issue {
@@ -182,7 +194,15 @@
     }
 </style>
 
-<h1>Project: {{ project.name | e }}</h1>
+<h1>BasecampProject: {{ project.name | e }}</h1>
+<ul id="instructions">Video recording:<br />
+    <li class="instruct">To create a issue you must say "<b>Start Review</b>"</li>
+    <li class="instruct">A screenshot will be taken of the screen you are
+        looking at.</li>
+    <li class="instruct">Then simply describe the issue </li>
+    <li class="instruct">When you are finished describing the issue, say "<b>End Review</b>"</li>
+    Repeat for each issue through the video recording.
+</ul>
 
 <select id="todo-list-select" data-basecamp-project-id="{{ basecamp_project_id }}">
     <option value="">Select a todo list</option>
@@ -228,13 +248,13 @@
             {% if issue.end_timestamp %}
             <p><strong>End Timestamp:</strong> {{ issue.end_timestamp }} seconds</p>
             {% endif %}
+            <button type="button" class="submit-button" onclick="submitIssue({{ issue.id }})">Submit to
+                Basecamp</button>
+            <div class="submit-status" id="submit-status-{{ issue.id }}"></div>
             {% for image_path in issue.get_image_paths() %}
             <img src="{{ url_for('serve_project_file', filename=image_path) }}" alt="Screenshot of issue"
                 class="issue-image">
             {% endfor %}
-            <button type="button" class="submit-button" onclick="submitIssue({{ issue.id }})">Submit to
-                Basecamp</button>
-            <div class="submit-status" id="submit-status-{{ issue.id }}"></div>
         </form>
         {% endfor %}
         {% else %}
