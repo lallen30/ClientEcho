@@ -25,5 +25,9 @@ background-color: #0052a3;
 {% block content %}
 <h1>Welcome to ClientEcho</h1>
 <p>ClientEcho helps you manage and analyze client feedback videos efficiently.</p>
+{% if 'oauth_token' not in session %}
+<p>Please <a href="{{ url_for('login') }}">log in with Basecamp</a> to continue.</p>
+{% else %}
 <a href="{{ url_for('home') }}">Go to Projects</a>
+{% endif %}
 {% endblock %}

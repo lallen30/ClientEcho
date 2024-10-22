@@ -190,7 +190,7 @@
         let html = `
           <h3>${selectedTodo.title || selectedTodo.content || 'Unnamed todo'}</h3>
           <p><strong>Assigned to:</strong> ${selectedTodo.assigned_to || 'Not assigned'}</p>
-          <p><strong>Content:</strong> ${selectedTodo.content || 'No content available.'}</p>
+          <p> ${selectedTodo.content || 'No content available.'}</p>
           <p><strong>Description:</strong> ${selectedTodo.description || 'No description available.'}</p>
           <p><strong>Due on:</strong> ${selectedTodo.due_on || 'Not set'}</p>
           <p><strong>Created at:</strong> ${selectedTodo.created_at || 'Not available'}</p>

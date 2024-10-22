@@ -4,7 +4,7 @@ os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
 import re
 import json
-from flask import Flask, request, render_template, jsonify, redirect, url_for, escape, send_from_directory, session
+from flask import Flask, request, render_template, jsonify, redirect, url_for, escape, send_from_directory, session, flash
 from werkzeug.utils import secure_filename
 from pydub import AudioSegment
 import whisper
@@ -20,6 +20,7 @@ import time
 from requests_oauthlib import OAuth2Session
 import requests
 import pprint
+from functools import wraps
 
 # Load environment variables
 load_dotenv()
@@ -438,10 +439,13 @@ def create_todo(token, project_id, todolist_id, title, notes):
         }
         logging.debug(f"Sending POST request to URL: {url}")
         logging.debug(f"Request data: {data}")
+        logging.debug(f"Headers: {headers}")
         response = oauth.post(url, headers=headers, json=data)
         
         logging.debug(f"Create todo API response status: {response.status_code}")
         logging.debug(f"Create todo API response content: {response.text[:1000]}...")  # Log first 1000 characters
+        
+        response.raise_for_status()  # This will raise an HTTPError for bad responses
         
         if response.status_code == 201:
             return response.json()
@@ -450,7 +454,7 @@ def create_todo(token, project_id, todolist_id, title, notes):
             return None
     except Exception as e:
         logging.exception(f"An error occurred while creating todo: {str(e)}")
-        return None
+        raise
 
 def get_access_token():
     return "your_access_token_here"  # Replace with your actual access token
@@ -459,19 +463,28 @@ def get_access_token():
 def not_found_error(error):
     app.logger.error(f"404 error: {str(error)}")
 
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'oauth_token' not in session:
+            return redirect(url_for('login', next=request.url))
+        return f(*args, **kwargs)
+    return decorated_function
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
 @app.route('/home')
+@login_required
 def home():
-    projects = Project.query.all()
-    return render_template('home.html', projects=projects)
+    token = session.get('oauth_token')
+    basecamp_projects = get_projects(token)
+    local_projects = Project.query.all()
+    return render_template('home.html', basecamp_projects=basecamp_projects, local_projects=local_projects)
 
 @app.route('/login')
 def login():
-    logging.debug("Login route accessed")
     oauth = OAuth2Session(CLIENT_ID, redirect_uri=REDIRECT_URI)
     authorization_url, state = oauth.authorization_url(
         authorization_base_url,
@@ -482,7 +495,6 @@ def login():
 
 @app.route('/oauth/callback')
 def callback():
-    logging.debug("Callback route accessed")
     oauth = OAuth2Session(CLIENT_ID, state=session['oauth_state'], redirect_uri=REDIRECT_URI)
     token = oauth.fetch_token(
         token_url,
@@ -491,15 +503,14 @@ def callback():
         include_client_id=True,
         type='web_server'
     )
-    logging.debug(f"Token received: {token}")
     session['oauth_token'] = token
-    return redirect(url_for('projects'))
+    next_url = request.args.get('next') or url_for('home')
+    return redirect(next_url)
 
 @app.route('/projects')
+@login_required
 def projects():
     token = session.get('oauth_token')
-    if not token:
-        return redirect(url_for('login'))
     projects = get_projects(token)
     if projects:
         return render_template('projects.html', projects=projects)
@@ -507,10 +518,9 @@ def projects():
         return "Failed to retrieve projects", 500
 
 @app.route('/todos')
+@login_required
 def todos():
     token = session.get('oauth_token')
-    if not token:
-        return redirect(url_for('login'))
     projects = get_projects(token)
     if projects:
         return render_template('todos.html', projects=projects)
@@ -550,6 +560,8 @@ def get_todos_route(project_id, todolist_id):
 
 def create_todo(token, project_id, todolist_id, title, notes):
     logging.debug(f"Attempting to create a new todo in project {project_id}, todolist {todolist_id}")
+    logging.debug(f"Title: {title}")
+    logging.debug(f"Notes: {notes}")
     try:
         oauth = OAuth2Session(CLIENT_ID, token=token)
         headers = {
@@ -561,10 +573,15 @@ def create_todo(token, project_id, todolist_id, title, notes):
             'content': title,
             'description': notes
         }
+        logging.debug(f"Sending POST request to URL: {url}")
+        logging.debug(f"Request data: {data}")
+        logging.debug(f"Headers: {headers}")
         response = oauth.post(url, headers=headers, json=data)
         
         logging.debug(f"Create todo API response status: {response.status_code}")
         logging.debug(f"Create todo API response content: {response.text[:1000]}...")  # Log first 1000 characters
+        
+        response.raise_for_status()  # This will raise an HTTPError for bad responses
         
         if response.status_code == 201:
             return response.json()
@@ -573,13 +590,12 @@ def create_todo(token, project_id, todolist_id, title, notes):
             return None
     except Exception as e:
         logging.exception(f"An error occurred while creating todo: {str(e)}")
-        return None
+        raise
 
 @app.route('/create_todo', methods=['POST'])
 def handle_create_todo():
     token = session.get('oauth_token')
     if not token:
-        logging.error("No OAuth token found in session")
         return jsonify({"error": "No OAuth token found. Please re-authenticate."}), 401
     
     data = request.json
@@ -588,14 +604,20 @@ def handle_create_todo():
     title = data.get('title')
     notes = data.get('notes')
     
+    logging.debug(f"Received create todo request: project_id={project_id}, todolist_id={todolist_id}, title={title}")
+    
     if not project_id or not todolist_id or not title:
         return jsonify({"error": "Missing required fields"}), 400
     
-    result = create_todo(token, project_id, todolist_id, title, notes)
-    if result:
-        return jsonify({"message": "Todo created successfully", "todo": result}), 201
-    else:
-        return jsonify({"error": "Failed to create todo. Please check the server logs for more details."}), 500
+    try:
+        result = create_todo(token, project_id, todolist_id, title, notes)
+        if result:
+            return jsonify({"message": "Todo created successfully", "todo": result}), 201
+        else:
+            return jsonify({"error": "Failed to create todo. The API returned no result."}), 500
+    except Exception as e:
+        logging.error(f"Error creating todo: {str(e)}")
+        return jsonify({"error": f"An error occurred while creating the todo: {str(e)}"}), 500
 
 @app.route('/upload_attachment/<project_id>', methods=['POST'])
 def upload_attachment(project_id):
@@ -634,10 +656,18 @@ def upload_attachment(project_id):
             return jsonify({"error": str(e)}), 500
 
 @app.route('/project/new', methods=['POST'])
+@login_required
 def new_project():
     logging.info("Received request to create new project")
     project_name = escape(request.form['project_name'])
     logging.info(f"Project name: {project_name}")
+    
+    # Check if project already exists
+    existing_project = Project.query.filter_by(name=project_name).first()
+    if existing_project:
+        flash('A project with this name already exists.', 'warning')
+        return redirect(url_for('home'))
+    
     project = Project(name=project_name)
     try:
         logging.info("Attempting to add project to database")
@@ -645,23 +675,36 @@ def new_project():
         logging.info("Attempting to commit changes to database")
         db.session.commit()
         logging.info(f"New project created: {project_name}")
-        return redirect(url_for('home'))
+        flash('Project created successfully!', 'success')
     except SQLAlchemyError as e:
         db.session.rollback()
-        logging.error(f"Error creating new project: {e}")
-        return jsonify({"error": "Failed to create project"}), 500
+        logging.error(f"SQLAlchemy error creating new project: {str(e)}")
+        flash('Failed to create project. Please try again.', 'error')
     except Exception as e:
         db.session.rollback()
         logging.error(f"Unexpected error creating new project: {str(e)}")
-        return jsonify({"error": "An unexpected error occurred"}), 500
+        flash('An unexpected error occurred. Please try again.', 'error')
     finally:
         db.session.close()
     return redirect(url_for('home'))
 
 @app.route('/project/<int:project_id>')
+@login_required
 def project_detail(project_id):
     project = Project.query.get_or_404(project_id)
-    return render_template('project_detail.html', project=project)
+    token = session.get('oauth_token')
+    basecamp_projects = get_projects(token)
+    
+    # Find the corresponding Basecamp project
+    basecamp_project = next((p for p in basecamp_projects if p['name'] == project.name), None)
+    
+    todo_lists = []
+    basecamp_project_id = None
+    if basecamp_project:
+        basecamp_project_id = basecamp_project['id']
+        todo_lists = get_todo_lists(token, basecamp_project_id)
+    
+    return render_template('project_detail.html', project=project, todo_lists=todo_lists, basecamp_project_id=basecamp_project_id)
 
 @app.route('/project/<int:project_id>/upload', methods=['POST'])
 def upload_video(project_id):
@@ -750,6 +793,18 @@ def init_db():
 if __name__ == '__main__':
     init_db()
     app.run(debug=False, host='0.0.0.0')
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

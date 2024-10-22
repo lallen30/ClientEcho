@@ -101,17 +101,106 @@
     .error {
         color: #ff0000;
     }
+
+    .issue-form {
+        background-color: #f0f0f0;
+        padding: 15px;
+        margin-bottom: 20px;
+        border-radius: 5px;
+    }
+
+    .issue-form input[type="text"],
+    .issue-form textarea {
+        width: 100%;
+        padding: 8px;
+        margin-bottom: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+    }
+
+    .issue-form textarea {
+        height: 100px;
+        resize: vertical;
+    }
+
+    .issue-form img {
+        max-width: 100%;
+        height: auto;
+        margin-top: 10px;
+    }
+
+    select {
+        width: 100%;
+        padding: 10px;
+        margin-top: 10px;
+        margin-bottom: 20px;
+        font-size: 16px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+    }
+
+    .upload-button {
+        background-color: #4CAF50;
+        border: none;
+        color: white;
+        padding: 10px 20px;
+        text-align: center;
+        text-decoration: none;
+        display: inline-block;
+        font-size: 16px;
+        margin: 4px 2px;
+        cursor: pointer;
+        border-radius: 4px;
+    }
+
+    .upload-status {
+        margin-top: 10px;
+        font-style: italic;
+    }
+
+    #uploadSection {
+        display: none;
+    }
+
+    .submit-button {
+        background-color: #4CAF50;
+        border: none;
+        color: white;
+        padding: 10px 20px;
+        text-align: center;
+        text-decoration: none;
+        display: inline-block;
+        font-size: 16px;
+        margin: 4px 2px;
+        cursor: pointer;
+        border-radius: 4px;
+    }
+
+    .submit-status {
+        margin-top: 10px;
+        font-style: italic;
+    }
 </style>
+
 <h1>Project: {{ project.name | e }}</h1>
 
-<h2>Upload New Video</h2>
-<form id="uploadForm" action="{{ url_for('upload_video', project_id=project.id) }}" method="post"
-    enctype="multipart/form-data">
-    <label for="video_file">Select video file:</label>
-    <input type="file" id="video_file" name="video_file" accept=".mp4,.avi,.mov,.mkv" required
-        aria-label="Select video file">
-    <input type="submit" value="Upload and Process">
-</form>
+<select id="todo-list-select" data-basecamp-project-id="{{ basecamp_project_id }}">
+    <option value="">Select a todo list</option>
+    {% for todo_list in todo_lists %}
+    <option value="{{ todo_list.id }}">{{ todo_list.name }}</option>
+    {% endfor %}
+</select>
+
+<div id="uploadSection">
+    <h2>Upload New Video</h2>
+    <form id="uploadForm" action="{{ url_for('upload_video', project_id=project.id) }}" method="post"
+        enctype="multipart/form-data">
+        <label for="video_file">Select video file:</label>
+        <input type="file" id="video_file" name="video_file" accept=".mp4,.avi,.mov,.mkv" required
+            aria-label="Select video file">
+        <input type="submit" value="Upload and Process">
+    </form>
+</div>
 
 <h2>Videos</h2>
 {% if project.videos %}
@@ -127,26 +216,27 @@
         </div>
         {% if video.processed %}
         {% if video.issues %}
-        <ul>
-            {% for issue in video.issues %}
-            <li class="issue">
-                {% set issue_parts = issue.summary.split('\n\n', 1) %}
-                <h4>{{ issue_parts[0] }}</h4>
-                {% if issue_parts|length > 1 %}
-                <p>{{ issue_parts[1] }}</p>
-                {% endif %}
-                {% if issue.start_timestamp %}
-                <p><strong>Start Timestamp:</strong> {{ issue.start_timestamp }} seconds</p>
-                {% endif %}
-                {% if issue.end_timestamp %}
-                <p><strong>End Timestamp:</strong> {{ issue.end_timestamp }} seconds</p>
-                {% endif %}
-                {% for image_path in issue.get_image_paths() %}
-                <img src="{{ url_for('serve_project_file', filename=image_path) }}" alt="Screenshot of issue">
-                {% endfor %}
-            </li>
+        {% for issue in video.issues %}
+        <form class="issue-form" id="issue-form-{{ issue.id }}">
+            {% set issue_parts = issue.summary.split('\n\n', 1) %}
+            <input type="text" name="title" value="{{ issue_parts[0] }}" placeholder="Issue Title">
+            <textarea name="notes"
+                placeholder="Issue Notes">{% if issue_parts|length > 1 %}{{ issue_parts[1] }}{% endif %}</textarea>
+            {% if issue.start_timestamp %}
+            <p><strong>Start Timestamp:</strong> {{ issue.start_timestamp }} seconds</p>
+            {% endif %}
+            {% if issue.end_timestamp %}
+            <p><strong>End Timestamp:</strong> {{ issue.end_timestamp }} seconds</p>
+            {% endif %}
+            {% for image_path in issue.get_image_paths() %}
+            <img src="{{ url_for('serve_project_file', filename=image_path) }}" alt="Screenshot of issue"
+                class="issue-image">
             {% endfor %}
-        </ul>
+            <button type="button" class="submit-button" onclick="submitIssue({{ issue.id }})">Submit to
+                Basecamp</button>
+            <div class="submit-status" id="submit-status-{{ issue.id }}"></div>
+        </form>
+        {% endfor %}
         {% else %}
         <p>No issues found in this video.</p>
         {% endif %}
@@ -236,6 +326,140 @@
     }
 
     // Start polling when the page loads
-    window.addEventListener('load', startPolling);
+    window.addEventListener('load', startPolling)
+
+    const todoListSelect = document.getElementById('todo-list-select')
+    const uploadSection = document.getElementById('uploadSection')
+
+    // Load the selected todo list from localStorage if it exists
+    const savedTodoListId = localStorage.getItem('selectedTodoListId')
+    if (savedTodoListId) {
+        todoListSelect.value = savedTodoListId
+        uploadSection.style.display = 'block'
+    }
+
+    todoListSelect.addEventListener('change', function () {
+        const selectedTodoListId = this.value
+        if (selectedTodoListId) {
+            console.log('Selected todo list ID:', selectedTodoListId)
+            uploadSection.style.display = 'block'
+            // Save the selected todo list ID to localStorage
+            localStorage.setItem('selectedTodoListId', selectedTodoListId)
+        } else {
+            uploadSection.style.display = 'none'
+            // Remove the saved todo list ID if none is selected
+            localStorage.removeItem('selectedTodoListId')
+        }
+    })
+
+    function submitIssue(issueId) {
+        console.log(`Starting submitIssue function for issue ID: ${issueId}`)
+
+        const form = document.getElementById(`issue-form-${issueId}`)
+        console.log('Form element:', form)
+
+        const title = form.querySelector('input[name="title"]').value
+        console.log('Title:', title)
+
+        let notes = form.querySelector('textarea[name="notes"]').value
+        console.log('Initial notes:', notes)
+
+        const todoListSelect = document.getElementById('todo-list-select')
+        const todoListId = todoListSelect.value
+        console.log('Selected todo list ID:', todoListId)
+        console.log('Todo list select element:', todoListSelect)
+
+        const basecampProjectId = todoListSelect.getAttribute('data-basecamp-project-id')
+        console.log('Basecamp Project ID:', basecampProjectId)
+
+        const statusElement = document.getElementById(`submit-status-${issueId}`)
+        console.log('Status element:', statusElement)
+
+        const imageElement = form.querySelector('.issue-image')
+        console.log('Image element:', imageElement)
+
+        if (!todoListId) {
+            console.error('No todo list selected')
+            alert('Please select a todo list at the top of the page.')
+            return
+        }
+
+        statusElement.textContent = 'Uploading...'
+
+        // First, upload the image
+        if (imageElement) {
+            console.log('Image source:', imageElement.src)
+            fetch(imageElement.src)
+                .then(res => {
+                    console.log('Image fetch response:', res)
+                    return res.blob()
+                })
+                .then(blob => {
+                    console.log('Image blob:', blob)
+                    const formData = new FormData()
+                    formData.append('file', blob, 'issue_image.jpg')
+
+                    console.log('Uploading attachment to project ID:', basecampProjectId)
+                    return fetch(`/upload_attachment/${basecampProjectId}`, {
+                        method: 'POST',
+                        body: formData
+                    })
+                })
+                .then(response => {
+                    console.log('Attachment upload response:', response)
+                    return response.json()
+                })
+                .then(data => {
+                    console.log('Attachment upload data:', data)
+                    // Add the image URL to the notes
+                    const imageUrl = `<bc-attachment sgid="${data.attachable_sgid}"></bc-attachment>`
+                    notes += `\n\n${imageUrl}`
+                    console.log('Updated notes with image URL:', notes)
+
+                    // Now create the todo with the updated notes
+                    console.log('Creating todo with:', {
+                        projectId: basecampProjectId,
+                        todoListId: todoListId,
+                        title: title,
+                        notes: notes
+                    })
+                    return fetch('/create_todo', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            projectId: basecampProjectId,
+                            todoListId: todoListId,
+                            title: title,
+                            notes: notes
+                        }),
+                    })
+                })
+                .then(response => {
+                    console.log('Create todo response:', response)
+                    if (!response.ok) {
+                        return response.json().then(err => { throw err })
+                    }
+                    return response.json()
+                })
+                .then(data => {
+                    console.log('Todo created successfully:', data)
+                    statusElement.textContent = 'Submitted successfully!'
+
+                    // Hide the form after successful submission
+                    setTimeout(() => {
+                        form.style.display = 'none'
+                    }, 2000) // Wait for 2 seconds before hiding the form
+                })
+                .catch(error => {
+                    console.error('Error in submitIssue:', error)
+                    statusElement.textContent = 'Submission failed. Please try again.'
+                })
+        } else {
+            console.error('No image found to upload')
+            statusElement.textContent = 'No image found to upload.'
+        }
+    }
 </script>
 {% endblock %}

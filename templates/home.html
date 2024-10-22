@@ -7,16 +7,20 @@
 
 <h2>Create a New Project</h2>
 <form action="{{ url_for('new_project') }}" method="post">
-    <label for="project_name">Project Name:</label>
-    <input type="text" id="project_name" name="project_name" placeholder="Enter project name" required
-        aria-label="Enter project name">
+    <label for="project_select">Select a Basecamp project:</label>
+    <select id="project_select" name="project_name" required aria-label="Select a Basecamp project">
+        <option value="">Choose a project</option>
+        {% for project in basecamp_projects %}
+        <option value="{{ project.name }}">{{ project.name }}</option>
+        {% endfor %}
+    </select>
     <input type="submit" value="Create Project">
 </form>
 
 <h2>Existing Projects</h2>
-{% if projects %}
+{% if local_projects %}
 <ul>
-    {% for project in projects %}
+    {% for project in local_projects %}
     <li><a href="{{ url_for('project_detail', project_id=project.id) }}">{{ project.name | e }}</a></li>
     {% endfor %}
 </ul>
