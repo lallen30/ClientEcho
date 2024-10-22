@@ -58,7 +58,7 @@ app.secret_key = os.urandom(24)
 BASECAMP_ACCOUNT_ID = os.getenv('BASECAMP_ACCOUNT_ID')
 CLIENT_ID = os.getenv('BASECAMP_CLIENT_ID')
 CLIENT_SECRET = os.getenv('BASECAMP_CLIENT_SECRET')
-REDIRECT_URI = 'http://localhost:8001/oauth/callback'
+REDIRECT_URI = 'http://localhost:5011/oauth/callback'
 authorization_base_url = "https://launchpad.37signals.com/authorization/new"
 token_url = "https://launchpad.37signals.com/authorization/token"
 

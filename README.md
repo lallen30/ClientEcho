@@ -42,7 +42,7 @@ ClientEcho is a web application that efficiently manages and analyzes client fee
 3. Build the Docker image:
 
    ```
-   docker build -t clientecho .
+   docker build -t clientecho . --no-cache
    ```
 
 4. Create a directory on your host machine for secure uploads:
@@ -54,12 +54,22 @@ ClientEcho is a web application that efficiently manages and analyzes client fee
 5. Run the Docker container:
 
    ```
-   docker run -p 8001:5000 -v ~/clientecho_uploads:/app/secure_uploads clientecho
+   docker run -d -p 5011:5000 --env-file .env -v ~/clientecho_uploads:/app/secure_uploads clientecho
+
+   docker tag clientecho lallen30/clientecho:latest
+   docker push lallen30/clientecho:latest
+   ```
+
+   On the server, run:
+
+   ```
+   docker pull lallen30/clientecho:latest
+   docker run -d -p 5011:5000 --env-file .env -v ~/clientecho_uploads:/app/secure_uploads clientecho
    ```
 
    Note: The `-v` option creates a volume mount. The path before the colon (`~/clientecho_uploads`) is the directory on your host machine, and the path after the colon (`/app/secure_uploads`) is where it will be mounted inside the container.
 
-6. Access the application at `http://localhost:8001`
+6. Access the application at `http://localhost:5011`
 
 ## Usage
 
