@@ -217,7 +217,7 @@ def save_issue_data(video_id, issue_number, review_data, video_path):
             logging.warning(f"Using fallback title: {title}")
 
         # Prepare the issue summary with the generated title
-        issue_summary = f"{title}\n\nContent: {review_data['text']}"
+        issue_summary = f"{title}\n\n{review_data['text']}"
 
         # Save the issue summary
         with open(os.path.join(issue_folder, 'summary.txt'), 'w') as f:
@@ -658,15 +658,16 @@ def upload_attachment(project_id):
 @app.route('/project/new', methods=['POST'])
 @login_required
 def new_project():
-    logging.info("Received request to create new project")
-    project_name = escape(request.form['project_name'])
-    logging.info(f"Project name: {project_name}")
+    data = request.json
+    project_id = data.get('project_id')
+    project_name = data.get('project_name')
+    
+    logging.info(f"Received request to create new project: {project_name} (ID: {project_id})")
     
     # Check if project already exists
     existing_project = Project.query.filter_by(name=project_name).first()
     if existing_project:
-        flash('A project with this name already exists.', 'warning')
-        return redirect(url_for('home'))
+        return jsonify({"redirect": url_for('project_detail', project_id=existing_project.id)})
     
     project = Project(name=project_name)
     try:
@@ -675,18 +676,17 @@ def new_project():
         logging.info("Attempting to commit changes to database")
         db.session.commit()
         logging.info(f"New project created: {project_name}")
-        flash('Project created successfully!', 'success')
+        return jsonify({"redirect": url_for('project_detail', project_id=project.id)})
     except SQLAlchemyError as e:
         db.session.rollback()
         logging.error(f"SQLAlchemy error creating new project: {str(e)}")
-        flash('Failed to create project. Please try again.', 'error')
+        return jsonify({"error": 'Failed to create project. Please try again.'})
     except Exception as e:
         db.session.rollback()
         logging.error(f"Unexpected error creating new project: {str(e)}")
-        flash('An unexpected error occurred. Please try again.', 'error')
+        return jsonify({"error": 'An unexpected error occurred. Please try again.'})
     finally:
         db.session.close()
-    return redirect(url_for('home'))
 
 @app.route('/project/<int:project_id>')
 @login_required
@@ -793,6 +793,8 @@ def init_db():
 if __name__ == '__main__':
     init_db()
     app.run(debug=False, host='0.0.0.0')
+
+
 
 
 

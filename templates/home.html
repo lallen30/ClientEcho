@@ -6,16 +6,12 @@
 <h1>Welcome to ClientEcho</h1>
 
 <h2>Create a New Project</h2>
-<form action="{{ url_for('new_project') }}" method="post">
-    <label for="project_select">Select a Basecamp project:</label>
-    <select id="project_select" name="project_name" required aria-label="Select a Basecamp project">
-        <option value="">Choose a project</option>
-        {% for project in basecamp_projects %}
-        <option value="{{ project.name }}">{{ project.name }}</option>
-        {% endfor %}
-    </select>
-    <input type="submit" value="Create Project">
-</form>
+<select id="project_select" name="project_name" required aria-label="Select a Basecamp project">
+    <option value="">Choose a project</option>
+    {% for project in basecamp_projects %}
+    <option value="{{ project.id }}">{{ project.name }}</option>
+    {% endfor %}
+</select>
 
 <h2>Existing Projects</h2>
 {% if local_projects %}
@@ -25,6 +21,37 @@
     {% endfor %}
 </ul>
 {% else %}
-<p>No projects found. Create a new project to get started.</p>
+<p>No projects found. Select a project from the dropdown above to get started.</p>
 {% endif %}
+
+<script>
+    document.getElementById('project_select').addEventListener('change', function () {
+        const selectedProjectId = this.value
+        const selectedProjectName = this.options[this.selectedIndex].text
+        if (selectedProjectId) {
+            fetch('{{ url_for("new_project") }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    project_id: selectedProjectId,
+                    project_name: selectedProjectName
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.redirect) {
+                        window.location.href = data.redirect
+                    } else {
+                        alert(data.error || 'An error occurred')
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error)
+                    alert('An error occurred. Please try again.')
+                })
+        }
+    });
+</script>
 {% endblock %}
