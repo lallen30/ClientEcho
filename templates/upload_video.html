@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block title %}Upload Video - ClientEcho{% endblock %}
+
+{% block content %}
+<style>
+  select,
+  input[type="file"],
+  input[type="submit"] {
+    width: 100%;
+    padding: 10px;
+    margin-top: 10px;
+    font-size: 16px;
+    box-sizing: border-box;
+  }
+
+  #upload-form {
+    margin-top: 20px;
+  }
+
+  .error {
+    color: red;
+    font-weight: bold;
+  }
+
+  button {
+    background-color: #4CAF50;
+    border: none;
+    color: white;
+    padding: 15px 32px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 16px;
+    margin-top: 10px;
+    cursor: pointer;
+  }
+
+  button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+  }
+
+  #upload-status {
+    margin-top: 10px;
+    font-style: italic;
+  }
+</style>
+<h1>Upload Video</h1>
+
+<select id="project-select">
+  <option value="">Select a project</option>
+  {% for project in projects %}
+  <option value="{{ project.id }}">{{ project.name }}</option>
+  {% endfor %}
+</select>
+
+<select id="todo-list-select">
+  <option value="">Select a todo list</option>
+</select>
+
+<form id="upload-form" enctype="multipart/form-data">
+  <input type="file" id="video-file" name="video_file" accept="video/*" required>
+  <div id="upload-status"></div>
+  <button type="submit" id="submit-upload" disabled>Upload Video</button>
+</form>
+
+<script>
+  const projectSelect = document.getElementById('project-select')
+  const todoListSelect = document.getElementById('todo-list-select')
+  const uploadForm = document.getElementById('upload-form')
+  const submitUploadButton = document.getElementById('submit-upload')
+  const uploadStatus = document.getElementById('upload-status')
+
+  projectSelect.addEventListener('change', function () {
+    var selectedProjectId = this.value
+    todoListSelect.innerHTML = '<option value="">Select a todo list</option>'
+    submitUploadButton.disabled = true
+
+    if (selectedProjectId) {
+      fetch('/todo_lists/' + selectedProjectId)
+        .then(response => {
+          if (!response.ok) {
+            return response.json().then(err => { throw err })
+          }
+          return response.json()
+        })
+        .then(data => {
+          if (!data || data.length === 0) {
+            todoListSelect.innerHTML = '<option value="">No todo lists found</option>'
+          } else {
+            data.forEach(todoList => {
+              var option = document.createElement('option')
+              option.value = todoList.id
+              option.textContent = todoList.name
+              todoListSelect.appendChild(option)
+            })
+          }
+        })
+        .catch(error => {
+          console.error('Error:', error)
+          todoListSelect.innerHTML = '<option value="" class="error">Error: ' + (error.error || JSON.stringify(error)) + '</option>'
+        })
+    }
+  })
+
+  todoListSelect.addEventListener('change', function () {
+    submitUploadButton.disabled = !this.value
+  })
+
+  uploadForm.addEventListener('submit', function (e) {
+    e.preventDefault()
+    const videoFile = document.getElementById('video-file').files[0]
+    const selectedProjectId = projectSelect.value
+    const selectedTodoListId = todoListSelect.value
+
+    if (!selectedProjectId || !selectedTodoListId || !videoFile) {
+      alert('Please select a project, todo list, and video file.')
+      return
+    }
+
+    const formData = new FormData()
+    formData.append('video_file', videoFile)
+
+    uploadStatus.textContent = 'Uploading...'
+
+    fetch(`/project/${selectedProjectId}/upload`, {
+      method: 'POST',
+      body: formData
+    })
+      .then(response => response.json())
+      .then(data => {
+        console.log('Video uploaded successfully:', data)
+        uploadStatus.textContent = 'Upload successful! ' + data.message
+        // Clear the form
+        this.reset()
+        submitUploadButton.disabled = true
+      })
+      .catch(error => {
+        console.error('Error uploading video:', error)
+        uploadStatus.textContent = 'Upload failed. Please try again.'
+      })
+  });
+</script>
+{% endblock %}

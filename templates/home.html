@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block title %}ClientEcho - Home{% endblock %}
+
+{% block content %}
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        max-width: 100%;
+        margin: 0 auto;
+        padding: 20px;
+        line-height: 1.6;
+        box-sizing: border-box;
+    }
+
+    h2 {
+        color: #333;
+        font-size: 24px;
+        margin-bottom: 20px;
+    }
+
+    select {
+        width: 100%;
+        padding: 12px 20px;
+        /* Increased padding for better spacing */
+        margin-bottom: 20px;
+        font-size: 18px;
+        /* Slightly larger font size for readability */
+        box-sizing: border-box;
+        border: 2px solid #ccc;
+        /* Thicker border for a more modern look */
+        border-radius: 6px;
+        /* More rounded corners */
+        appearance: none;
+        -webkit-appearance: none;
+        -moz-appearance: none;
+        background-color: #fff;
+        /* Ensure white background */
+        background-image: url('data:image/svg+xml;utf8,<svg fill="black" height="16" viewBox="0 0 24 24" width="16" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/><path d="M0 0h24v24H0z" fill="none"/></svg>');
+        background-repeat: no-repeat;
+        background-position-x: 98%;
+        background-position-y: 50%;
+        transition: border-color 0.3s ease, box-shadow 0.3s ease;
+        /* Smooth transition */
+    }
+
+
+    select:focus {
+        outline: none;
+        border-color: #0066cc;
+        box-shadow: 0 0 5px rgba(0, 102, 204, 0.3);
+    }
+
+    select option {
+        padding: 10px;
+        background-color: white;
+        color: #333;
+    }
+
+    select option:hover {
+        background-color: #f0f0f0;
+    }
+
+    p {
+        margin-bottom: 20px;
+    }
+
+    @media (min-width: 768px) {
+        body {
+            max-width: 800px;
+        }
+
+        h2 {
+            font-size: 28px;
+        }
+
+        select {
+            font-size: 18px;
+        }
+    }
+</style>
+
+<h2>Select a Basecamp Project</h2>
+<select id="project_select" name="project_name" required aria-label="Select a Basecamp project">
+    <option value="">Choose a project</option>
+    {% for project in basecamp_projects %}
+    <option value="{{ project.id }}">{{ project.name }}</option>
+    {% endfor %}
+</select>
+
+{#
+<h2>Previous Selected Projects</h2>
+{% if local_projects %}
+<ul>
+    {% for project in local_projects %}
+    <li><a href="{{ url_for('project_detail', project_id=project.id) }}">{{ project.name | e }}</a></li>
+    {% endfor %}
+</ul>
+{% else %}
+<p>No projects found. Select a project from the dropdown above to get started.</p>
+{% endif %}
+#}
+
+<script>
+    document.getElementById('project_select').addEventListener('change', function () {
+        const selectedProjectId = this.value
+        const selectedProjectName = this.options[this.selectedIndex].text
+        if (selectedProjectId) {
+            fetch('{{ url_for("new_project") }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    project_id: selectedProjectId,
+                    project_name: selectedProjectName
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.redirect) {
+                        window.location.href = data.redirect
+                    } else {
+                        alert(data.error || 'An error occurred')
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error)
+                    alert('An error occurred. Please try again.')
+                })
+        }
+    });
+</script>
+{% endblock %}

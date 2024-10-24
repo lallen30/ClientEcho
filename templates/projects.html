@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Create A New Todo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      max-width: 100%;
+      padding: 0 15px;
+      box-sizing: border-box;
+    }
+
+    h1,
+    h2 {
+      color: #333;
+      font-size: 24px;
+    }
+
+    select,
+    input[type="text"],
+    textarea {
+      width: 100%;
+      padding: 10px;
+      margin-top: 10px;
+      font-size: 16px;
+      box-sizing: border-box;
+    }
+
+    textarea {
+      height: 100px;
+      resize: vertical;
+    }
+
+    #todo-lists,
+    #todo-form {
+      margin-top: 20px;
+    }
+
+    .error {
+      color: red;
+      font-weight: bold;
+    }
+
+    button {
+      background-color: #4CAF50;
+      border: none;
+      color: white;
+      padding: 15px;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 16px;
+      margin-top: 10px;
+      cursor: pointer;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+
+    nav {
+      margin-bottom: 20px;
+    }
+
+    nav a {
+      display: inline-block;
+      margin-right: 10px;
+      margin-bottom: 10px;
+    }
+
+    #image-preview {
+      max-width: 100%;
+      height: auto;
+      margin-top: 10px;
+    }
+
+    #upload-status {
+      margin-top: 10px;
+      font-style: italic;
+    }
+
+    #new-todolist-container {
+      margin-top: 20px;
+      margin-bottom: 20px;
+    }
+
+    #new-todolist-name {
+      width: 100%;
+      padding: 8px;
+      margin-right: 0;
+      margin-bottom: 10px;
+    }
+
+    #create-todolist-btn {
+      width: 100%;
+    }
+
+    @media (min-width: 768px) {
+      body {
+        max-width: 800px;
+        margin: 0 auto;
+      }
+
+      button,
+      #create-todolist-btn {
+        width: auto;
+      }
+
+      #new-todolist-name {
+        width: 70%;
+        margin-right: 10px;
+        margin-bottom: 0;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <nav>
+    <a href="/home">Upload Video & Create Todo(s)</a>
+    <a href="/projects">Create A New Todo</a>
+  </nav>
+
+  <h1>Create A New Todo</h1>
+
+  <select id="project-select">
+    <option value="">Select a project</option>
+    {% for project in projects %}
+    <option value="{{ project.id }}">{{ project.name }}</option>
+    {% endfor %}
+  </select>
+
+  <div id="new-todolist-container">
+    <input type="text" id="new-todolist-name" placeholder="New Todo List Name">
+    <button id="create-todolist-btn" onclick="createTodoList()">Create Todo List</button>
+  </div>
+
+  <div id="todo-lists">
+    <h2>Todo Lists</h2>
+    <select id="todo-list-select">
+      <option value="">Select a todo list</option>
+    </select>
+  </div>
+
+  <div id="todo-form">
+    <h2>Add New Todo</h2>
+    <form id="new-todo-form">
+      <input type="text" id="todo-title" placeholder="Todo Title" required>
+      <textarea id="todo-notes" placeholder="Notes (optional)"></textarea>
+      <input type="file" id="image-upload" accept="image/*">
+      <div id="upload-status"></div>
+      <img id="image-preview" style="display: none;">
+      <button type="submit" id="submit-todo" disabled>Add Todo</button>
+    </form>
+  </div>
+
+  <script>
+    const projectSelect = document.getElementById('project-select')
+    const todoListSelect = document.getElementById('todo-list-select')
+    const newTodoForm = document.getElementById('new-todo-form')
+    const submitTodoButton = document.getElementById('submit-todo')
+
+    projectSelect.addEventListener('change', function () {
+      var selectedProjectId = this.value
+      todoListSelect.innerHTML = '<option value="">Select a todo list</option>'
+      submitTodoButton.disabled = true
+
+      if (selectedProjectId) {
+        fetchTodoLists(selectedProjectId)
+      }
+    })
+
+    function fetchTodoLists(projectId) {
+      fetch('/todo_lists/' + projectId)
+        .then(response => {
+          if (!response.ok) {
+            return response.json().then(err => { throw err })
+          }
+          return response.json()
+        })
+        .then(data => {
+          if (!data || data.length === 0) {
+            todoListSelect.innerHTML = '<option value="">No todo lists found</option>'
+          } else {
+            populateTodoLists(data)
+          }
+        })
+        .catch(error => {
+          console.error('Error:', error)
+          todoListSelect.innerHTML = '<option value="" class="error">Error: ' + (error.error || JSON.stringify(error)) + '</option>'
+        })
+    }
+
+    function populateTodoLists(todoLists) {
+      todoListSelect.innerHTML = '<option value="">Select a todo list</option>'
+      todoLists.forEach(todoList => {
+        var option = document.createElement('option')
+        option.value = todoList.id
+        option.textContent = todoList.name
+        todoListSelect.appendChild(option)
+      })
+    }
+
+    function createTodoList() {
+      const todoListName = document.getElementById('new-todolist-name').value.trim()
+      if (!todoListName) {
+        alert('Please enter a name for the new todo list.')
+        return
+      }
+
+      const selectedProjectId = projectSelect.value
+      if (!selectedProjectId) {
+        alert('Please select a project first.')
+        return
+      }
+
+      fetch('/create_todolist', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          projectId: selectedProjectId,
+          name: todoListName,
+          description: ''  // You can add a description input if needed
+        }),
+      })
+        .then(response => {
+          if (!response.ok) {
+            return response.json().then(err => { throw err })
+          }
+          return response.json()
+        })
+        .then(data => {
+          alert(data.message || 'Todo list created successfully!')
+          // Add the new todo list to the select dropdown
+          const option = new Option(data.name, data.id)
+          todoListSelect.add(option)
+          // Select the newly created todo list
+          todoListSelect.value = data.id
+          // Clear the input field
+          document.getElementById('new-todolist-name').value = ''
+          // Enable the submit button
+          submitTodoButton.disabled = false
+        })
+        .catch(error => {
+          console.error('Error creating todo list:', error)
+          alert('Failed to create todo list. Please try again. Error: ' + error.message)
+        })
+    }
+
+    todoListSelect.addEventListener('change', function () {
+      submitTodoButton.disabled = !this.value
+    })
+
+    const imageUpload = document.getElementById('image-upload')
+    const imagePreview = document.getElementById('image-preview')
+    const uploadStatus = document.getElementById('upload-status')
+    const todoNotes = document.getElementById('todo-notes')
+
+    imageUpload.addEventListener('change', function (event) {
+      const file = event.target.files[0]
+      if (file) {
+        const reader = new FileReader()
+        reader.onload = function (e) {
+          imagePreview.src = e.target.result
+          imagePreview.style.display = 'block'
+        }
+        reader.readAsDataURL(file)
+
+        // Automatically upload the image
+        uploadImage(file)
+      }
+    })
+
+    function uploadImage(file) {
+      const projectId = projectSelect.value
+      if (!projectId) {
+        alert('Please select a project first.')
+        return
+      }
+
+      const formData = new FormData()
+      formData.append('file', file)
+
+      uploadStatus.textContent = 'Uploading...'
+
+      fetch(`/upload_attachment/${projectId}`, {
+        method: 'POST',
+        body: formData
+      })
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`)
+          }
+          return response.json()
+        })
+        .then(data => {
+          uploadStatus.textContent = 'Upload successful!'
+          const attachmentTag = `<bc-attachment sgid="${data.attachable_sgid}" caption="${file.name}"></bc-attachment>`
+          todoNotes.value += (todoNotes.value ? '\n\n' : '') + attachmentTag
+        })
+        .catch(error => {
+          console.error('Error uploading image:', error)
+          uploadStatus.textContent = 'Upload failed. Please try again.'
+        })
+    }
+
+    newTodoForm.addEventListener('submit', function (e) {
+      e.preventDefault()
+      const todoTitle = document.getElementById('todo-title').value
+      const todoNotes = document.getElementById('todo-notes').value
+      const selectedProjectId = projectSelect.value
+      const selectedTodoListId = todoListSelect.value
+
+      fetch('/create_todo', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          projectId: selectedProjectId,
+          todoListId: selectedTodoListId,
+          title: todoTitle,
+          notes: todoNotes
+        }),
+      })
+        .then(response => {
+          if (!response.ok) {
+            return response.json().then(err => { throw err })
+          }
+          return response.json()
+        })
+        .then(data => {
+          console.log('Todo created successfully:', data)
+          alert('Todo created successfully!')
+          // Clear the form
+          this.reset()
+          imagePreview.style.display = 'none'
+          uploadStatus.textContent = ''
+          submitTodoButton.disabled = true
+        })
+        .catch(error => {
+          console.error('Error:', error)
+          alert('Failed to create todo: ' + (error.error || JSON.stringify(error)))
+        })
+    })
+  </script>
+</body>
+
+</html>

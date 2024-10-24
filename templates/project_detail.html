@@ -1,0 +1,536 @@
+{% extends "base.html" %}
+
+{% block title %}ClientEcho - Project Detail{% endblock %}
+
+{% block content %}
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        max-width: 100%;
+        margin: 0 auto;
+        padding: 20px;
+        line-height: 1.6;
+        box-sizing: border-box;
+    }
+
+    h1,
+    h2,
+    h3 {
+        color: #333;
+        font-size: 24px;
+    }
+
+    form {
+        margin-bottom: 20px;
+    }
+
+    input[type="file"],
+    input[type="submit"],
+    select,
+    button {
+        width: 100%;
+        padding: 10px;
+        margin-bottom: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        box-sizing: border-box;
+    }
+
+    input[type="submit"],
+    button {
+        background-color: #0066cc;
+        color: white;
+        cursor: pointer;
+    }
+
+    input[type="submit"]:hover,
+    button:hover {
+        background-color: #0052a3;
+    }
+
+    ul {
+        list-style-type: none;
+        padding: 0;
+    }
+
+    li {
+        margin-bottom: 20px;
+    }
+
+    .issue {
+        background-color: #f0f0f0;
+        padding: 10px;
+        margin-bottom: 10px;
+        border-radius: 5px;
+    }
+
+    .issue img {
+        max-width: 100%;
+        height: auto;
+        margin-top: 10px;
+    }
+
+    a {
+        color: #0066cc;
+        text-decoration: none;
+    }
+
+    a:hover {
+        text-decoration: underline;
+    }
+
+    .loader {
+        border: 16px solid #f3f3f3;
+        border-radius: 50%;
+        border-top: 16px solid #3498db;
+        width: 60px;
+        height: 60px;
+        animation: spin 2s linear infinite;
+        display: inline-block;
+        vertical-align: middle;
+        margin-right: 10px;
+    }
+
+    @keyframes spin {
+        0% {
+            transform: rotate(0deg);
+        }
+
+        100% {
+            transform: rotate(360deg);
+        }
+    }
+
+    .status {
+        font-weight: bold;
+        margin-left: 10px;
+    }
+
+    .error {
+        color: #ff0000;
+    }
+
+    #new-todolist-container {
+        margin-bottom: 20px;
+    }
+
+    #new-todolist-name {
+        width: 100%;
+        padding: 8px;
+        margin-bottom: 10px;
+    }
+
+    #create-todolist-btn {
+        width: 100%;
+    }
+
+    @media (min-width: 768px) {
+        body {
+            max-width: 800px;
+        }
+
+        input[type="file"],
+        input[type="submit"],
+        select,
+        button {
+            width: auto;
+        }
+
+        #new-todolist-name {
+            width: 70%;
+            margin-right: 10px;
+            margin-bottom: 0;
+        }
+
+        #create-todolist-btn {
+            width: auto;
+        }
+    }
+</style>
+
+<h1>Basecamp Project: {{ project.name | e }}</h1>
+<ul id="instructions">Video recording:<br />
+    <li class="instruct">To create a issue you must say "<b>Start Review</b>"</li>
+    <li class="instruct">A screenshot will be taken of the screen you are
+        looking at.</li>
+    <li class="instruct">Then simply describe the issue </li>
+    <li class="instruct">When you are finished describing the issue, say "<b>Stop Review</b>"</li>
+    Repeat for each issue through the video recording.
+</ul>
+
+<div id="new-todolist-container">
+    <input type="text" id="new-todolist-name" placeholder="New Todo List Name">
+    <button id="create-todolist-btn" onclick="createTodoList()">Create Todo List</button>
+</div>
+
+<select id="todo-list-select" data-basecamp-project-id="{{ basecamp_project_id }}">
+    <option value="">Select a todo list</option>
+    {% for todo_list in todo_lists %}
+    <option value="{{ todo_list.id }}">{{ todo_list.name }}</option>
+    {% endfor %}
+</select>
+
+<div id="uploadSection">
+    <h2>Upload New Video</h2>
+    <form id="uploadForm" action="{{ url_for('upload_video', project_id=project.id) }}" method="post"
+        enctype="multipart/form-data">
+        <label for="video_file">Select video file:</label>
+        <input type="file" id="video_file" name="video_file" accept=".mp4,.avi,.mov,.mkv" required
+            aria-label="Select video file">
+        <input type="submit" value="Upload and Process">
+    </form>
+</div>
+
+{% if project.videos %}
+<ul id="videoList">
+    {% for video in project.videos %}
+    <li id="video-{{ video.id }}">
+        <h3>{{ video.filename | e }}</h3>
+        <div class="status-container">
+            {% if not video.processed %}
+            <div class="loader" aria-label="Processing video"></div>
+            {% endif %}
+            <span class="status">Status: {{ video.status }}</span>
+        </div>
+        {% if video.processed %}
+        {% if video.issues %}
+        {% for issue in video.issues %}
+        <form class="issue-form" id="issue-form-{{ issue.id }}">
+            {% set issue_parts = issue.summary.split('\n\n', 1) %}
+            <input type="text" name="title" value="{{ issue_parts[0] }}" placeholder="Issue Title">
+            <textarea name="notes"
+                placeholder="Issue Notes">{% if issue_parts|length > 1 %}{{ issue_parts[1] }}{% endif %}</textarea>
+            {% if issue.start_timestamp %}
+            <p><strong>Start Timestamp:</strong> {{ issue.start_timestamp }} seconds</p>
+            {% endif %}
+            {% if issue.end_timestamp %}
+            <p><strong>End Timestamp:</strong> {{ issue.end_timestamp }} seconds</p>
+            {% endif %}
+            <button type="button" class="submit-button" onclick="submitIssue({{ issue.id }})">Submit to
+                Basecamp</button>
+            <div class="submit-status" id="submit-status-{{ issue.id }}"></div>
+            {% for image_path in issue.get_image_paths() %}
+            <img src="{{ url_for('serve_project_file', filename=image_path) }}" alt="Screenshot of issue"
+                class="issue-image">
+            {% endfor %}
+        </form>
+        {% endfor %}
+        {% else %}
+        <p>No issues found in this video.</p>
+        {% endif %}
+        {% endif %}
+    </li>
+    {% endfor %}
+</ul>
+{% else %}
+<p>No videos uploaded yet. Upload a video to get started.</p>
+{% endif %}
+
+<p><a href="{{ url_for('home') }}">Back to Home</a></p>
+
+<script>
+    document.getElementById('uploadForm').addEventListener('submit', function (event) {
+        event.preventDefault()
+        const formData = new FormData(this)
+
+        fetch(this.action, {
+            method: 'POST',
+            body: formData
+        })
+            .then(response => {
+                if (!response.ok) {
+                    return response.text().then(text => {
+                        try {
+                            return JSON.parse(text)
+                        } catch (e) {
+                            throw new Error(text)
+                        }
+                    })
+                }
+                return response.json()
+            })
+            .then(data => {
+                if (data.error) {
+                    throw new Error(data.error)
+                }
+                console.log(data.message)
+                alert(data.message)
+                location.reload()
+            })
+            .catch(error => {
+                console.error('Error uploading video:', error)
+                alert('Error uploading video: ' + error.message)
+            })
+    })
+
+    function updateVideoStatus(videoId) {
+        fetch(`/video/${videoId}/status`)
+            .then(response => response.json())
+            .then(data => {
+                const videoElement = document.getElementById(`video-${videoId}`)
+                if (videoElement) {
+                    const statusContainer = videoElement.querySelector('.status-container')
+                    const statusSpan = statusContainer.querySelector('.status')
+                    statusSpan.textContent = `Status: ${data.status}`
+
+                    if (data.processed) {
+                        const loader = statusContainer.querySelector('.loader')
+                        if (loader) {
+                            loader.remove()
+                        }
+                        if (!data.status.startsWith('Error')) {
+                            location.reload() // Reload to show processed results
+                        } else {
+                            statusSpan.classList.add('error')
+                        }
+                    }
+                }
+            })
+            .catch(error => console.error('Error updating video status:', error))
+    }
+
+    function startPolling() {
+        const videoList = document.getElementById('videoList')
+        if (videoList) {
+            const videos = videoList.getElementsByTagName('li')
+            for (let video of videos) {
+                const videoId = video.id.split('-')[1]
+                const statusContainer = video.querySelector('.status-container')
+                if (statusContainer && statusContainer.querySelector('.loader')) {
+                    setInterval(() => updateVideoStatus(videoId), 5000) // Poll every 5 seconds
+                }
+            }
+        }
+    }
+
+    // Start polling when the page loads
+    window.addEventListener('load', startPolling)
+
+    const todoListSelect = document.getElementById('todo-list-select')
+    const uploadSection = document.getElementById('uploadSection')
+
+    // Load the selected todo list from localStorage if it exists
+    const savedTodoListId = localStorage.getItem('selectedTodoListId')
+    if (savedTodoListId) {
+        todoListSelect.value = savedTodoListId
+        uploadSection.style.display = 'block'
+    }
+
+    todoListSelect.addEventListener('change', function () {
+        const selectedTodoListId = this.value
+        if (selectedTodoListId) {
+            console.log('Selected todo list ID:', selectedTodoListId)
+            uploadSection.style.display = 'block'
+            // Save the selected todo list ID to localStorage
+            localStorage.setItem('selectedTodoListId', selectedTodoListId)
+        } else {
+            uploadSection.style.display = 'none'
+            // Remove the saved todo list ID if none is selected
+            localStorage.removeItem('selectedTodoListId')
+        }
+    })
+
+    function submitIssue(issueId) {
+        console.log(`Starting submitIssue function for issue ID: ${issueId}`)
+
+        const form = document.getElementById(`issue-form-${issueId}`)
+        console.log('Form element:', form)
+
+        const title = form.querySelector('input[name="title"]').value
+        console.log('Title:', title)
+
+        let notes = form.querySelector('textarea[name="notes"]').value
+        console.log('Initial notes:', notes)
+
+        const todoListSelect = document.getElementById('todo-list-select')
+        const todoListId = todoListSelect.value
+        console.log('Selected todo list ID:', todoListId)
+        console.log('Todo list select element:', todoListSelect)
+
+        const basecampProjectId = todoListSelect.getAttribute('data-basecamp-project-id')
+        console.log('Basecamp Project ID:', basecampProjectId)
+
+        const statusElement = document.getElementById(`submit-status-${issueId}`)
+        console.log('Status element:', statusElement)
+
+        const imageElement = form.querySelector('.issue-image')
+        console.log('Image element:', imageElement)
+
+        if (!todoListId) {
+            console.error('No todo list selected')
+            alert('Please select a todo list at the top of the page.')
+            return
+        }
+
+        statusElement.textContent = 'Uploading...'
+
+        // First, upload the image
+        if (imageElement) {
+            console.log('Image source:', imageElement.src)
+            fetch(imageElement.src)
+                .then(res => {
+                    console.log('Image fetch response:', res)
+                    return res.blob()
+                })
+                .then(blob => {
+                    console.log('Image blob:', blob)
+                    const formData = new FormData()
+                    formData.append('file', blob, 'issue_image.jpg')
+
+                    console.log('Uploading attachment to project ID:', basecampProjectId)
+                    return fetch(`/upload_attachment/${basecampProjectId}`, {
+                        method: 'POST',
+                        body: formData
+                    })
+                })
+                .then(response => {
+                    console.log('Attachment upload response:', response)
+                    return response.json()
+                })
+                .then(data => {
+                    console.log('Attachment upload data:', data)
+                    // Add the image URL to the notes
+                    const imageUrl = `<bc-attachment sgid="${data.attachable_sgid}"></bc-attachment>`
+                    notes += `\n\n${imageUrl}`
+                    console.log('Updated notes with image URL:', notes)
+
+                    // Now create the todo with the updated notes
+                    console.log('Creating todo with:', {
+                        projectId: basecampProjectId,
+                        todoListId: todoListId,
+                        title: title,
+                        notes: notes
+                    })
+                    return fetch('/create_todo', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            projectId: basecampProjectId,
+                            todoListId: todoListId,
+                            title: title,
+                            notes: notes
+                        }),
+                    })
+                })
+                .then(response => {
+                    console.log('Create todo response:', response)
+                    if (!response.ok) {
+                        return response.json().then(err => { throw err })
+                    }
+                    return response.json()
+                })
+                .then(data => {
+                    console.log('Todo created successfully:', data)
+                    statusElement.textContent = 'Submitted successfully!'
+
+                    // Hide the form after successful submission
+                    setTimeout(() => {
+                        form.style.display = 'none'
+                    }, 2000) // Wait for 2 seconds before hiding the form
+                })
+                .catch(error => {
+                    console.error('Error in submitIssue:', error)
+                    statusElement.textContent = 'Submission failed. Please try again.'
+                })
+        } else {
+            console.error('No image found to upload')
+            statusElement.textContent = 'No image found to upload.'
+        }
+
+        fetch('/create_todo', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                projectId: basecampProjectId,
+                todoListId: todoListId,
+                title: title,
+                notes: notes
+            }),
+        })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(err => { throw err })
+                }
+                return response.json()
+            })
+            .then(data => {
+                console.log('Todo created successfully:', data)
+                statusElement.textContent = 'Submitted successfully!'
+
+                // Archive the issue
+                return fetch(`/archive_issue/${issueId}`, {
+                    method: 'POST'
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Failed to archive issue')
+                }
+                return response.json()
+            })
+            .then(data => {
+                console.log('Issue archived:', data)
+                // Remove the issue form from the page
+                form.remove()
+            })
+            .catch(error => {
+                console.error('Error in submitIssue:', error)
+                statusElement.textContent = 'Submission failed. Please try again.'
+            })
+    }
+
+    function createTodoList() {
+        const todoListName = document.getElementById('new-todolist-name').value.trim()
+        if (!todoListName) {
+            alert('Please enter a name for the new todo list.')
+            return
+        }
+
+        const basecampProjectId = document.getElementById('todo-list-select').getAttribute('data-basecamp-project-id')
+
+        fetch('/create_todolist', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                projectId: basecampProjectId,
+                name: todoListName,
+                description: ''  // You can add a description input if needed
+            }),
+        })
+            .then(response => {
+                if (!response.ok) {
+                    return response.text().then(text => {
+                        try {
+                            return JSON.parse(text)
+                        } catch (e) {
+                            throw new Error(text)
+                        }
+                    })
+                }
+                return response.json()
+            })
+            .then(data => {
+                alert(data.message || 'Todo list created successfully!')
+                // Add the new todo list to the select dropdown
+                const option = new Option(data.name, data.id)
+                document.getElementById('todo-list-select').add(option)
+                // Select the newly created todo list
+                document.getElementById('todo-list-select').value = data.id
+                // Clear the input field
+                document.getElementById('new-todolist-name').value = ''
+                // Show the upload section if it was hidden
+                document.getElementById('uploadSection').style.display = 'block'
+            })
+            .catch(error => {
+                console.error('Error creating todo list:', error)
+                alert('Failed to create todo list. Please try again. Error: ' + error.message)
+            })
+    }
+</script>
+{% endblock %}

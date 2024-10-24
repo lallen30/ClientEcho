@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}Welcome to ClientEcho{% endblock %}
+
+{% block additional_styles %}
+h1 {
+color: #333;
+}
+p {
+margin-bottom: 20px;
+}
+.button {
+display: inline-block;
+padding: 10px 20px;
+background-color: #0066cc;
+color: white;
+text-decoration: none;
+border-radius: 5px;
+}
+.button:hover {
+background-color: #0052a3;
+}
+{% endblock %}
+
+{% block content %}
+<h1>Welcome to ClientEcho</h1>
+<p>ClientEcho helps you manage and analyze client feedback videos efficiently.</p>
+{% if 'oauth_token' not in session %}
+<p>Please <a href="{{ url_for('login') }}">log in with Basecamp</a> to continue.</p>
+{% else %}
+<a href="{{ url_for('home') }}">Go to Projects</a>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}ClientEcho{% endblock %}</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      line-height: 1.6;
+    }
+
+    nav {
+      margin-bottom: 20px;
+    }
+
+    nav a {
+      margin-right: 10px;
+      color: #0066cc;
+      text-decoration: none;
+    }
+
+    nav a:hover {
+      text-decoration: underline;
+    }
+
+    .flashes {
+      margin-bottom: 20px;
+    }
+
+    .flash {
+      padding: 10px;
+      margin-bottom: 10px;
+      border-radius: 4px;
+    }
+
+    .flash.success {
+      background-color: #dff0d8;
+      border-color: #d6e9c6;
+      color: #3c763d;
+    }
+
+    .flash.warning {
+      background-color: #fcf8e3;
+      border-color: #faebcc;
+      color: #8a6d3b;
+    }
+
+    .flash.error {
+      background-color: #f2dede;
+      border-color: #ebccd1;
+      color: #a94442;
+    }
+  </style>
+</head>
+
+<body>
+  <nav>
+    {% if 'oauth_token' in session %}
+    <a href="{{ url_for('home') }}">Upload Video & Create Todo(s)</a>
+    <a href="{{ url_for('projects') }}">Create A New Todo</a>
+
+    {% else %}
+    <a href="{{ url_for('login') }}">Login with Basecamp</a>
+    {% endif %}
+  </nav>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+  <div class="flashes">
+    {% for category, message in messages %}
+    <div class="flash {{ category }}">{{ message }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
+</body>
+
+</html>
