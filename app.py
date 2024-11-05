@@ -21,6 +21,7 @@ from requests_oauthlib import OAuth2Session
 import requests
 import pprint
 from functools import wraps
+import torch
 
 # Load environment variables
 load_dotenv()
@@ -37,7 +38,7 @@ db = SQLAlchemy(app)
 UPLOAD_FOLDER = '/app/secure_uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100 MB limit
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB limit
 
 # Set the projects folder
 PROJECTS_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'project-files')
@@ -99,53 +100,253 @@ def allowed_file(filename):
 def extract_audio(video_path, audio_path):
     try:
         logging.info(f"Extracting audio from {video_path}")
-        audio = AudioSegment.from_file(video_path)
-        audio.export(audio_path, format="wav")
+        
+        # First get video information
+        probe_cmd = [
+            'ffprobe',
+            '-v', 'error',
+            '-select_streams', 'v:0',
+            '-show_entries', 'stream=start_time,duration,time_base,r_frame_rate',
+            '-of', 'json',
+            video_path
+        ]
+        
+        probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+        video_info = json.loads(probe_result.stdout)
+        logging.info(f"Video info: {video_info}")
+        
+        # Extract audio with precise timing
+        cmd = [
+            'ffmpeg',
+            '-y',  # Overwrite output file
+            '-i', video_path,
+            '-vn',  # Disable video
+            '-acodec', 'pcm_s16le',  # Use PCM format
+            '-ar', '44100',  # Set sample rate
+            '-ac', '2',  # Set audio channels
+            '-copyts',  # Copy timestamps
+            '-start_at_zero',  # Start at zero timestamp
+            '-map_metadata', '0',  # Copy metadata
+            '-fflags', '+genpts',  # Generate presentation timestamps
+            audio_path
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            logging.error(f"FFmpeg stderr: {result.stderr}")
+            raise RuntimeError(f"FFmpeg audio extraction failed: {result.stderr}")
+            
         logging.info(f"Audio extracted successfully to {audio_path}")
+        
+        # Verify audio timing
+        audio_probe_cmd = [
+            'ffprobe',
+            '-v', 'error',
+            '-show_entries', 'format=start_time,duration',
+            '-of', 'json',
+            audio_path
+        ]
+        
+        audio_probe_result = subprocess.run(audio_probe_cmd, capture_output=True, text=True)
+        audio_info = json.loads(audio_probe_result.stdout)
+        logging.info(f"Extracted audio info: {audio_info}")
+        
+        return video_info, audio_info
+        
     except Exception as e:
-        logging.error(f"Error extracting audio: {e}")
+        logging.error(f"Error extracting audio: {str(e)}")
         raise
 
 def transcribe_audio(audio_path):
     try:
-        logging.info(f"Transcribing audio from {audio_path}")
-        model = whisper.load_model('base')
-        result = model.transcribe(audio_path)
-        logging.info("Audio transcription completed")
-        return result
+        logging.info(f"Starting transcription of audio from {audio_path}")
+        
+        # Verify audio file exists and is readable
+        if not os.path.exists(audio_path):
+            raise FileNotFoundError(f"Audio file not found: {audio_path}")
+        
+        # Load Whisper model with explicit device selection
+        logging.info("Loading Whisper model...")
+        try:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            logging.info(f"Using device: {device}")
+            model = whisper.load_model('base', device=device)
+            logging.info("Whisper model loaded successfully")
+        except Exception as e:
+            logging.error(f"Error loading Whisper model: {e}")
+            raise
+        
+        # Perform transcription
+        logging.info("Starting transcription...")
+        try:
+            result = model.transcribe(
+                audio_path,
+                verbose=True,
+                fp16=False
+            )
+            
+            # Verify transcription result
+            if not result or 'segments' not in result:
+                raise ValueError("Transcription result is invalid or empty")
+            
+            # Log segments for debugging
+            for segment in result['segments']:
+                logging.info(f"Segment: {segment['start']:.3f}-{segment['end']:.3f}: {segment['text']}")
+            
+            return result
+            
+        except Exception as e:
+            logging.error(f"Error during transcription: {e}")
+            raise
+            
     except Exception as e:
-        logging.error(f"Error transcribing audio: {e}")
-        raise
+        logging.error(f"Error in transcribe_audio: {str(e)}")
+        raise RuntimeError(f"Transcription failed: {str(e)}")
 
-def analyze_transcript(transcript):
+def analyze_transcript(transcript, video_info, audio_info):
     try:
         logging.info("Analyzing transcript")
         segments = transcript['segments']
         reviews = []
         current_review = None
+        buffer_text = []
+        
+        # Log all segments for analysis
+        logging.info("\nAll segments in transcript:")
+        for i, segment in enumerate(segments):
+            logging.info(f"Segment {i}: {segment['start']:.2f}-{segment['end']:.2f}: {segment['text']}")
 
-        for segment in segments:
-            text = segment['text'].strip().lower()
-            if "start review" in text:
+        # Compile regex patterns for review markers
+        start_review_pattern = re.compile(r'\bstart\s+review\b', re.IGNORECASE)
+        stop_review_pattern = re.compile(r'\b(stop|end)\s+review\b', re.IGNORECASE)
+
+        for i, segment in enumerate(segments):
+            text = segment['text'].strip()
+            lower_text = text.lower()
+            
+            # Detect "start review"
+            if start_review_pattern.search(lower_text):
+                start_idx = lower_text.find("start review")
+                
+                # Split into words and find word index of "start review"
+                words = text.split()
+                lower_words = lower_text.split()
+                
+                # Find which word is "start review"
+                start_review_word_idx = -1
+                for j, word_pair in enumerate(zip(words, lower_words)):
+                    if "start" in word_pair[1] and j + 1 < len(lower_words) and "review" in lower_words[j + 1]:
+                        start_review_word_idx = j
+                        break
+                
+                # Calculate timing
+                if start_review_word_idx >= 0:
+                    segment_duration = segment['end'] - segment['start']
+                    words_count = len(words)
+                    
+                    # Calculate time per word more accurately
+                    time_per_word = segment_duration / words_count if words_count > 0 else 0
+                    
+                    # Calculate start time based on word position
+                    start_time = segment['start'] + (start_review_word_idx * time_per_word)
+                    
+                    # Add offset for saying "start review"
+                    start_time += 0.8  # Increased offset to account for phrase duration
+                    
+                    logging.info(f"""
+                    Found 'start review':
+                    - Segment {i}
+                    - Full text: "{text}"
+                    - Word index: {start_review_word_idx} of {words_count}
+                    - Segment start: {segment['start']:.2f}
+                    - Segment end: {segment['end']:.2f}
+                    - Time per word: {time_per_word:.2f}
+                    - Calculated start: {start_time:.2f}
+                    """)
+                else:
+                    start_time = segment['start']
+                
+                # Close previous review if exists
                 if current_review:
-                    reviews.append(current_review)
+                    current_review['end'] = start_time
+                    current_review['text'] = ' '.join(buffer_text)
+                    if current_review['text'].strip():
+                        reviews.append(current_review)
+                    buffer_text = []
+                
+                # Start new review
                 current_review = {
-                    'start': segment['start'],
+                    'start': start_time,
                     'text': [],
-                    'end': None
+                    'end': None,
+                    'segment_index': i,
+                    'timing_details': {
+                        'segment_start': segment['start'],
+                        'word_index': start_review_word_idx,
+                        'total_words': len(words),
+                        'time_per_word': time_per_word
+                    }
                 }
-            elif "stop review" in text and current_review:
+                
+                # Get remaining text after "start review"
+                remaining_text = text[start_idx + len("start review"):].strip()
+                remaining_text = re.sub(r'^[.\s]+', '', remaining_text)
+                if remaining_text:
+                    buffer_text.append(remaining_text)
+            
+            # Detect "stop review" or "end review"
+            elif current_review and stop_review_pattern.search(lower_text):
+                stop_idx = lower_text.find("stop review")
+                if stop_idx == -1:
+                    stop_idx = lower_text.find("end review")
+                
+                # Include any text before "stop review" or "end review" in buffer
+                if stop_idx > 0:
+                    text_before_stop = text[:stop_idx].strip()
+                    if text_before_stop:
+                        buffer_text.append(text_before_stop)
+                
+                # Finalize the current review entry
                 current_review['end'] = segment['end']
-                current_review['text'] = ' '.join(current_review['text'])
-                reviews.append(current_review)
+                current_review['text'] = ' '.join(buffer_text)
+                if current_review['text'].strip():
+                    reviews.append(current_review)
                 current_review = None
+                buffer_text = []
+            
+            # Buffer text within an ongoing review session
             elif current_review:
-                current_review['text'].append(segment['text'])
+                cleaned_text = text.strip()
+                if cleaned_text:
+                    buffer_text.append(cleaned_text)
 
+        # Finalize any open review if transcript ended before closing
         if current_review:
-            reviews.append(current_review)
+            current_review['end'] = segments[-1]['end']
+            current_review['text'] = ' '.join(buffer_text)
+            if current_review['text'].strip():
+                reviews.append(current_review)
 
-        return reviews
+        # Process reviews and generate titles
+        processed_reviews = []
+        for review in reviews:
+            if not review['text'].strip():
+                continue
+            
+            review['title'] = generate_title(review['text'])
+            review['screenshot_time'] = review['start']
+            
+            logging.info(f"""
+            Processed review:
+            - Title: {review['title']}
+            - Start: {review['start']:.3f} ({int(review['start']//60)}:{int(review['start']%60):02d})
+            - End: {review['end']:.3f} ({int(review['end']//60)}:{int(review['end']%60):02d})
+            - Text: {review['text'][:100]}...
+            """)
+            
+            processed_reviews.append(review)
+
+        return processed_reviews
 
     except Exception as e:
         logging.error(f"Error analyzing transcript: {e}")
@@ -154,26 +355,69 @@ def analyze_transcript(transcript):
 def extract_frame(video_path, timestamp, output_path):
     try:
         logging.info(f"Extracting frame at {timestamp} seconds from {video_path}")
+        
+        # Get detailed video information including FPS
+        probe_cmd = [
+            'ffprobe',
+            '-v', 'error',
+            '-select_streams', 'v:0',
+            '-show_entries', 'stream=r_frame_rate,start_time,duration,avg_frame_rate',
+            '-of', 'json',
+            video_path
+        ]
+        
+        probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+        video_info = json.loads(probe_result.stdout)
+        logging.info(f"Video frame info: {video_info}")
+        
+        # Calculate FPS from the frame rate fraction (e.g., "30000/1001" -> 29.97)
+        fps_str = video_info['streams'][0].get('r_frame_rate', '30/1')
+        fps_num, fps_den = map(int, fps_str.split('/'))
+        fps = fps_num / fps_den
+        
+        # Calculate the nearest frame boundary
+        video_start = float(video_info['streams'][0].get('start_time', '0'))
+        frame_duration = 1.0 / fps
+        adjusted_timestamp = timestamp - video_start
+        
+        # Round to nearest frame boundary
+        frame_number = round(adjusted_timestamp * fps)
+        frame_perfect_timestamp = frame_number * frame_duration
+        
+        logging.info(f"""
+        Frame calculation:
+        - FPS: {fps}
+        - Frame duration: {frame_duration}
+        - Original timestamp: {timestamp}
+        - Video start time: {video_start}
+        - Adjusted timestamp: {adjusted_timestamp}
+        - Frame number: {frame_number}
+        - Frame-perfect timestamp: {frame_perfect_timestamp}
+        """)
+        
         cmd = [
             'ffmpeg',
-            '-y',  # Force overwrite without prompting
-            '-ss', str(timestamp),
+            '-y',  # Force overwrite
+            '-ss', str(frame_perfect_timestamp),  # Seek to frame-perfect timestamp
             '-i', video_path,
+            '-vf', f'fps={fps}',  # Force input FPS
             '-vframes', '1',
             '-q:v', '2',
             '-update', '1',
             output_path
         ]
+        
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         logging.info(f"Frame extracted successfully to {output_path}")
-        logging.info(f"ffmpeg stdout: {result.stdout}")
-        logging.info(f"ffmpeg stderr: {result.stderr}")
+        logging.info(f"Command output: {result.stdout}")
+        logging.info(f"Command stderr: {result.stderr}")
+        
     except subprocess.CalledProcessError as e:
         logging.error(f"Error extracting frame: {e}")
-        logging.error(f"ffmpeg command: {' '.join(e.cmd)}")
-        logging.error(f"ffmpeg return code: {e.returncode}")
-        logging.error(f"ffmpeg stdout: {e.stdout}")
-        logging.error(f"ffmpeg stderr: {e.stderr}")
+        logging.error(f"Command: {' '.join(e.cmd)}")
+        logging.error(f"Return code: {e.returncode}")
+        logging.error(f"Output: {e.stdout}")
+        logging.error(f"Error: {e.stderr}")
         raise
     except Exception as e:
         logging.error(f"Unexpected error in extract_frame: {str(e)}")
@@ -181,19 +425,18 @@ def extract_frame(video_path, timestamp, output_path):
 
 def generate_title(summary):
     try:
-        logging.info(f"Attempting to generate title for summary: {summary[:100]}...")  # Log first 100 chars of summary
+        logging.info(f"Generating title for summary: {summary[:100]}...")  # Log first 100 chars of summary
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant that summarizes text in 5 words."},
-                {"role": "user", "content": f"Summarize the following in 8 words:\n\n{summary}"}
+                {"role": "user", "content": f"Summarize the following in 5 words:\n\n{summary}"}
             ],
             max_tokens=20,
             n=1,
             temperature=0.7,
         )
         title = response.choices[0].message['content'].strip()
-        logging.info(f"Raw OpenAI response: {response}")
         logging.info(f"Generated title: {title}")
         if not title:
             raise ValueError("OpenAI returned an empty title")
@@ -205,29 +448,32 @@ def generate_title(summary):
 def save_issue_data(video_id, issue_number, review_data, video_path):
     try:
         logging.info(f"Saving issue data for video {video_id}, issue {issue_number}")
+        logging.info(f"Review data: Start={review_data['start']:.2f}, End={review_data['end']:.2f}, Title={review_data['title']}")
+        
         issue_folder = os.path.join(PROJECTS_FOLDER, f'video_{video_id}', f'issue_{issue_number}')
         os.makedirs(issue_folder, exist_ok=True)
 
-        # Generate title using OpenAI
-        title = generate_title(review_data['text'])
-        logging.info(f"Generated title for issue {issue_number}: {title}")
+        # Use the title from review data
+        title = review_data['title']
         
-        if title is None:
-            # If title generation failed, use the first 8 words of the content
-            title = ' '.join(review_data['text'].split()[:8])
-            logging.warning(f"Using fallback title: {title}")
-
-        # Prepare the issue summary with the generated title
-        issue_summary = f"{title}\n\n{review_data['text']}"
+        # Prepare the issue summary - removed the duplicate text
+        issue_summary = (
+            f"{title}\n\n"
+            f"Timestamp: {int(review_data['start']//60)}:{int(review_data['start']%60):02d}\n\n"
+            f"{review_data['text']}"
+        )
 
         # Save the issue summary
         with open(os.path.join(issue_folder, 'summary.txt'), 'w') as f:
             f.write(issue_summary)
 
-        # Extract and save the frame
+        # Extract and save the frame at the screenshot time
         image_filename = f'image_{issue_number}.jpg'
         image_path = os.path.join(issue_folder, image_filename)
-        extract_frame(video_path, review_data['start'], image_path)
+        
+        # Use the exact start time for screenshot
+        screenshot_time = review_data.get('screenshot_time', review_data['start'])
+        extract_frame(video_path, screenshot_time, image_path)
 
         # Save issue to database
         relative_image_path = os.path.join(f'video_{video_id}', f'issue_{issue_number}', image_filename)
@@ -240,6 +486,7 @@ def save_issue_data(video_id, issue_number, review_data, video_path):
         )
         db.session.add(issue)
         db.session.commit()
+        
         logging.info(f"Issue data saved successfully for video {video_id}, issue {issue_number}")
         logging.info(f"Image saved at: {image_path}")
         logging.info(f"Relative image path: {relative_image_path}")
@@ -256,42 +503,52 @@ def process_video(video_id):
             logging.error(f"Video with id {video_id} not found")
             return
 
-        logging.info(f"Processing video {video.filename} for project {video.project.name}")
         video_path = os.path.join(app.config['UPLOAD_FOLDER'], video.filename)
         audio_path = os.path.join(app.config['UPLOAD_FOLDER'], f'{video.filename}_audio.wav')
         
-        video.status = 'Extracting Audio'
-        db.session.commit()
-        extract_audio(video_path, audio_path)
-        
-        video.status = 'Transcribing'
-        db.session.commit()
-        transcript = transcribe_audio(audio_path)
-        
-        video.status = 'Analyzing Transcript'
-        db.session.commit()
-        reviews = analyze_transcript(transcript)
+        try:
+            video.status = 'Extracting Audio'
+            db.session.commit()
+            video_info, audio_info = extract_audio(video_path, audio_path)
+            
+            video.status = 'Transcribing'
+            db.session.commit()
+            transcript = transcribe_audio(audio_path)
+            
+            video.status = 'Analyzing Transcript'
+            db.session.commit()
+            reviews = analyze_transcript(transcript, video_info, audio_info)
+            
+            video.status = 'Processing Issues'
+            db.session.commit()
 
-        video.status = 'Processing Issues'
-        db.session.commit()
-
-        for i, review in enumerate(reviews, 1):
-            save_issue_data(video.id, i, review, video_path)
-        
-        video.processed = True
-        video.status = 'Completed'
-        db.session.commit()
-        
-        logging.info(f"Video processing completed for {video.filename}")
-        
-        # Clean up temporary files
-        os.remove(audio_path)
+            for i, review in enumerate(reviews, 1):
+                save_issue_data(video.id, i, review, video_path)
+            
+            video.processed = True
+            video.status = 'Completed'
+            db.session.commit()
+            
+            logging.info(f"Video processing completed for {video.filename}")
+            
+        except Exception as e:
+            logging.error(f"Error processing video: {e}")
+            video.status = f'Error: {str(e)}'
+            db.session.commit()
+            raise
+        finally:
+            # Clean up temporary files
+            try:
+                if os.path.exists(audio_path):
+                    os.remove(audio_path)
+            except Exception as e:
+                logging.error(f"Error cleaning up audio file: {e}")
+                
     except Exception as e:
-        logging.error(f"Error processing video: {e}")
-        video.status = f'Error: {str(e)}'
-        db.session.commit()
-        db.session.rollback()
-        raise
+        logging.error(f"Error in process_video: {e}")
+        if video:
+            video.status = f'Error: {str(e)}'
+            db.session.commit()
     finally:
         db.session.close()
 
@@ -773,41 +1030,86 @@ def project_detail(project_id):
 
 @app.route('/project/<int:project_id>/upload', methods=['POST'])
 def upload_video(project_id):
-    logging.info(f"Received upload request for project ID: {project_id}")
-    project = Project.query.get_or_404(project_id)
-    if 'video_file' not in request.files:
-        logging.error("No file part in the request")
-        return jsonify({"error": "No file part"}), 400
-    
-    file = request.files['video_file']
-    if file.filename == '':
-        logging.error("No selected file")
-        return jsonify({"error": "No selected file"}), 400
-    
-    if file and allowed_file(file.filename):
-        try:
-            filename = secure_filename(file.filename)
-            video_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            file.save(video_path)
-            logging.info(f"File {filename} saved to {video_path}")
+    try:
+        logging.info(f"Received upload request for project ID: {project_id}")
+        project = Project.query.get_or_404(project_id)
+        
+        if 'video_file' not in request.files:
+            logging.error("No file part in the request")
+            return jsonify({"error": "No file part"}), 400
+        
+        file = request.files['video_file']
+        if file.filename == '':
+            logging.error("No selected file")
+            return jsonify({"error": "No selected file"}), 400
+        
+        if file and allowed_file(file.filename):
+            try:
+                filename = secure_filename(file.filename)
+                video_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                
+                # Save the uploaded file
+                file.save(video_path)
+                logging.info(f"File {filename} saved to {video_path}")
+                
+                # Verify the file is a valid video file
+                probe_cmd = [
+                    'ffmpeg',
+                    '-v', 'error',
+                    '-i', video_path,
+                    '-f', 'null',
+                    '-'
+                ]
+                
+                try:
+                    subprocess.run(probe_cmd, check=True, capture_output=True, text=True)
+                except subprocess.CalledProcessError as e:
+                    # Clean up the invalid file
+                    os.remove(video_path)
+                    logging.error(f"Invalid video file: {e.stderr}")
+                    return jsonify({
+                        "error": "The uploaded file appears to be corrupted or is not a valid video file. Please try uploading again."
+                    }), 400
 
-            video = Video(filename=filename, project_id=project.id, status='Uploaded')
-            db.session.add(video)
-            db.session.commit()
-            logging.info(f"Video record created for {filename}")
-
-            async_process_video(video.id)
-
-            return jsonify({"message": f"Video uploaded and processing started for project {project.name}. You will be notified when processing is complete."}), 202
-        except Exception as e:
-            db.session.rollback()
-            logging.error(f"Error processing upload: {str(e)}")
-            return jsonify({"error": f"An error occurred while processing the video: {str(e)}"}), 500
-        finally:
-            db.session.close()
-    else:
-        logging.error("Invalid file type")
-        return jsonify({"error": "Invalid file type"}), 400
+                # Verify video format before processing
+                video_info = verify_video_format(video_path)
+                
+                # Create video record
+                video = Video(
+                    filename=filename,
+                    project_id=project.id,
+                    status='Uploaded',
+                    metadata=json.dumps(video_info)
+                )
+                db.session.add(video)
+                db.session.commit()
+                
+                # Start processing
+                async_process_video(video.id)
+                
+                return jsonify({
+                    "message": f"Video uploaded and processing started for project {project.name}. You will be notified when processing is complete."
+                }), 202
+                
+            except Exception as e:
+                # Clean up on error
+                if os.path.exists(video_path):
+                    os.remove(video_path)
+                db.session.rollback()
+                logging.error(f"Error processing upload: {str(e)}")
+                return jsonify({
+                    "error": f"An error occurred while processing the video: {str(e)}"
+                }), 500
+            finally:
+                db.session.close()
+        else:
+            logging.error("Invalid file type")
+            return jsonify({
+                "error": f"Invalid file type. Allowed types are: {', '.join(ALLOWED_EXTENSIONS)}"
+            }), 400
+    except Exception as e:
+        logging.error(f"Upload error: {e}")
+        return jsonify({"error": str(e)}), 400
 
 
 @app.route('/video/<int:video_id>/status')
@@ -877,3 +1179,44 @@ def archive_issue(issue_id):
         logging.error(f"Error archiving issue: {str(e)}")
         return jsonify({"error": "Failed to archive issue"}), 500
 
+@app.route('/delete_issue/<int:issue_id>', methods=['POST'])
+@login_required
+def delete_issue(issue_id):
+    issue = Issue.query.get_or_404(issue_id)
+    try:
+        db.session.delete(issue)
+        db.session.commit()
+        return jsonify({"message": "Issue deleted successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Error deleting issue: {str(e)}")
+        return jsonify({"error": "Failed to delete issue"}), 500
+
+def verify_video_format(video_path):
+    try:
+        probe_cmd = [
+            'ffprobe',
+            '-v', 'error',
+            '-show_format',
+            '-show_streams',
+            '-of', 'json',
+            video_path
+        ]
+        
+        result = subprocess.run(probe_cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise ValueError(f"Invalid video format: {result.stderr}")
+            
+        info = json.loads(result.stdout)
+        logging.info(f"Video format info: {json.dumps(info, indent=2)}")
+        
+        # Check for potential timing issues
+        format_info = info['format']
+        if float(format_info.get('start_time', '0')) != 0:
+            logging.warning(f"Video has non-zero start time: {format_info['start_time']}")
+        
+        return info
+        
+    except Exception as e:
+        logging.error(f"Error verifying video format: {e}")
+        raise

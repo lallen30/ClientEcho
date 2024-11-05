@@ -39,10 +39,16 @@ ClientEcho is a web application that efficiently manages and analyzes client fee
    OPENAI_API_KEY=your_api_key_here
    ```
 
-3. Build the Docker image:
-
+ // local testing
    ```
    docker build -t clientecho . --no-cache
+   docker run -p 9001:5000 --env-file .env clientecho
+   ```
+
+
+3. Build the Docker image:
+   ```
+   docker buildx build --platform linux/amd64 -t lallen30/clientecho:latest . --no-cache --load
    ```
 
 4. Create a directory on your host machine for secure uploads:
@@ -54,9 +60,7 @@ ClientEcho is a web application that efficiently manages and analyzes client fee
 5. Run the Docker container:
 
    ```
-   docker run -d -p 9001:5000 --env-file .env -v ~/app:/app/secure_uploads clientecho
-
-   docker tag clientecho lallen30/clientecho:latest
+   docker run -d --name "client-echo" -p 9001:5000 --env-file .env lallen30/clientecho:latest
    docker push lallen30/clientecho:latest
    ```
 
