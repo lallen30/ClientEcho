@@ -7,52 +7,62 @@ RUN apt-get update && apt-get install -y \
   build-essential \
   curl \
   sqlite3 \
+  tesseract-ocr \
+  tesseract-ocr-eng \
+  libtesseract-dev \
+  git \
+  cmake \
+  libatlas-base-dev \
+  libffi-dev \
+  python3-dev \
+  sox \
   && rm -rf /var/lib/apt/lists/*
-
-# Install Rust
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Set the working directory for the builder
 WORKDIR /app
 
-# Copy requirements
+# Copy requirements and install dependencies
 COPY requirements.txt .
-
-# Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Runtime stage
 FROM python:3.9-slim
 
-# Install ffmpeg and sqlite3
+# Install runtime dependencies
 RUN apt-get update && apt-get install -y \
   ffmpeg \
   sqlite3 \
+  tesseract-ocr \
+  tesseract-ocr-eng \
+  libtesseract-dev \
+  libatlas-base-dev \
+  python3-dev \
+  sox \
+  nano \
   && rm -rf /var/lib/apt/lists/*
-
-# Install a text editor
-RUN apt-get update && apt-get install -y nano
 
 # Set the working directory
 WORKDIR /app
 
-# Copy the installed dependencies from the builder stage
-COPY --from=builder /usr/local/lib/python3.9/site-packages /usr/local/lib/python3.9/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
+# Copy requirements and install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy Python packages from builder
+COPY --from=builder /usr/local/lib/python3.9/site-packages/ /usr/local/lib/python3.9/site-packages/
+COPY --from=builder /usr/local/bin/ /usr/local/bin/
 
 # Copy the application code
 COPY . .
 
-# Create a non-root user
-RUN useradd -m appuser
-
 # Create necessary directories and set permissions
-RUN mkdir -p /app/instance && \
+RUN mkdir -p /app/instance /app/secure_uploads && \
   touch /app/instance/clientecho.db && \
+  useradd -m appuser && \
   chown -R appuser:appuser /app && \
   chmod 755 /app/instance && \
-  chmod 664 /app/instance/clientecho.db
+  chmod 664 /app/instance/clientecho.db && \
+  chmod 777 /app/secure_uploads
 
 # Initialize the database as root
 RUN python init_db.py
@@ -67,5 +77,5 @@ EXPOSE 5000
 ENV FLASK_APP=app.py
 ENV FLASK_RUN_HOST=0.0.0.0
 
-# Run the application with increased timeout to allow for longer video processing times
+# Run the application
 CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--timeout", "300", "--workers", "1", "--threads", "2", "app:app"]

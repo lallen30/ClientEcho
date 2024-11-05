@@ -22,6 +22,8 @@ import requests
 import pprint
 from functools import wraps
 import torch
+import pytesseract
+from PIL import Image
 
 # Load environment variables
 load_dotenv()
@@ -203,77 +205,111 @@ def transcribe_audio(audio_path):
         logging.error(f"Error in transcribe_audio: {str(e)}")
         raise RuntimeError(f"Transcription failed: {str(e)}")
 
-def analyze_transcript(transcript, video_info, audio_info):
+def get_precise_timestamps(audio_path, transcript):
+    """Use Gentle forced alignment to get precise word timestamps"""
+    try:
+        logging.info("Starting forced alignment with Gentle")
+        
+        # Convert audio to required format (16kHz mono WAV)
+        temp_wav = audio_path.replace('.wav', '_gentle.wav')
+        subprocess.run([
+            'ffmpeg', '-y',
+            '-i', audio_path,
+            '-acodec', 'pcm_s16le',
+            '-ar', '16000',
+            '-ac', '1',
+            temp_wav
+        ], check=True)
+        
+        # Initialize Gentle resources
+        resources = gentle.Resources()
+        
+        # Load audio
+        with wave.open(temp_wav, 'rb') as wf:
+            audio = wf.readframes(wf.getnframes())
+        
+        # Perform alignment
+        aligner = gentle.ForcedAligner(resources, transcript)
+        result = aligner.transcribe(audio)
+        
+        # Extract word-level alignments
+        word_alignments = []
+        for word in result.words:
+            if word.success:
+                word_alignments.append({
+                    'word': word.word,
+                    'start': word.start,
+                    'end': word.end,
+                    'confidence': word.confidence
+                })
+                logging.info(f"Word: {word.word}, Start: {word.start:.3f}, End: {word.end:.3f}")
+        
+        return word_alignments
+        
+    except Exception as e:
+        logging.error(f"Error in forced alignment: {e}")
+        return None
+    finally:
+        # Cleanup
+        if os.path.exists(temp_wav):
+            os.remove(temp_wav)
+
+def analyze_transcript(transcript):
     try:
         logging.info("Analyzing transcript")
         segments = transcript['segments']
         reviews = []
         current_review = None
         buffer_text = []
-        
-        # Log all segments for analysis
-        logging.info("\nAll segments in transcript:")
-        for i, segment in enumerate(segments):
-            logging.info(f"Segment {i}: {segment['start']:.2f}-{segment['end']:.2f}: {segment['text']}")
 
-        # Compile regex patterns for review markers
-        start_review_pattern = re.compile(r'\bstart\s+review\b', re.IGNORECASE)
-        stop_review_pattern = re.compile(r'\b(stop|end)\s+review\b', re.IGNORECASE)
+        # Calculate average speaking rate across all segments
+        total_words = sum(len(segment['text'].split()) for segment in segments)
+        total_duration = sum(segment['end'] - segment['start'] for segment in segments)
+        avg_word_duration = total_duration / total_words if total_words > 0 else 0.3
+        
+        logging.info(f"Average word duration: {avg_word_duration:.3f} seconds")
 
         for i, segment in enumerate(segments):
             text = segment['text'].strip()
             lower_text = text.lower()
             
-            # Detect "start review"
-            if start_review_pattern.search(lower_text):
+            if "start review" in lower_text:
                 start_idx = lower_text.find("start review")
-                
-                # Split into words and find word index of "start review"
                 words = text.split()
-                lower_words = lower_text.split()
+                words_before = text[:start_idx].split()
                 
-                # Find which word is "start review"
-                start_review_word_idx = -1
-                for j, word_pair in enumerate(zip(words, lower_words)):
-                    if "start" in word_pair[1] and j + 1 < len(lower_words) and "review" in lower_words[j + 1]:
-                        start_review_word_idx = j
-                        break
+                # Calculate segment-specific word timing
+                segment_duration = segment['end'] - segment['start']
+                segment_words = len(words)
+                segment_word_duration = segment_duration / segment_words if segment_words > 0 else avg_word_duration
                 
-                # Calculate timing
-                if start_review_word_idx >= 0:
-                    segment_duration = segment['end'] - segment['start']
-                    words_count = len(words)
-                    
-                    # Calculate time per word more accurately
-                    time_per_word = segment_duration / words_count if words_count > 0 else 0
-                    
-                    # Calculate start time based on word position
-                    base_time = segment['start'] + (start_review_word_idx * time_per_word)
-                    
-                    # Add offset for saying "start review" (1 second)
-                    start_time = base_time + 1.0
-                    
-                    # Ensure we don't start before the actual phrase
-                    if start_time < base_time + 0.8:  # Minimum time to say "start review"
-                        start_time = base_time + 0.8
-                    
-                    # Add a small buffer to prevent early triggers
-                    if start_time < segment['start'] + 0.5:
-                        start_time = segment['start'] + 0.5
-                    
-                    logging.info(f"""
-                    Found 'start review':
-                    - Segment {i}
-                    - Full text: "{text}"
-                    - Word index: {start_review_word_idx} of {words_count}
-                    - Segment start: {segment['start']:.2f}
-                    - Base time: {base_time:.2f}
-                    - Final start time: {start_time:.2f}
-                    - Segment end: {segment['end']:.2f}
-                    """)
-                else:
-                    start_time = segment['start'] + 0.8  # Default offset if word index not found
+                # Use the more accurate of average and segment-specific timing
+                word_duration = min(segment_word_duration, avg_word_duration * 1.5)
                 
+                # Calculate base time using word position
+                base_time = segment['start'] + (len(words_before) * word_duration)
+                
+                # Add time for saying "start review" based on speaking rate
+                start_review_duration = word_duration * 2  # "start review" is typically 2 words
+                start_time = base_time + start_review_duration
+                
+                # Verify timing is reasonable
+                if start_time > segment['end']:
+                    # If calculated time exceeds segment, use proportion-based timing
+                    proportion = start_idx / len(text)
+                    start_time = segment['start'] + (segment_duration * proportion) + start_review_duration
+                
+                logging.info(f"""
+                Detailed timing calculation:
+                - Segment {i}: {segment['start']:.2f}-{segment['end']:.2f}
+                - Text: "{text}"
+                - Words before 'start review': {len(words_before)}
+                - Word duration: {word_duration:.3f}s
+                - Base time: {base_time:.2f}s
+                - Start review duration: {start_review_duration:.2f}s
+                - Final start time: {start_time:.2f}s
+                """)
+
                 # Close previous review if exists
                 if current_review:
                     current_review['end'] = start_time
@@ -281,7 +317,7 @@ def analyze_transcript(transcript, video_info, audio_info):
                     if current_review['text'].strip():
                         reviews.append(current_review)
                     buffer_text = []
-                
+
                 # Start new review
                 current_review = {
                     'start': start_time,
@@ -290,20 +326,21 @@ def analyze_transcript(transcript, video_info, audio_info):
                     'segment_index': i,
                     'timing_details': {
                         'segment_start': segment['start'],
-                        'word_index': start_review_word_idx,
-                        'total_words': len(words),
-                        'base_time': base_time
+                        'word_duration': word_duration,
+                        'words_before': len(words_before),
+                        'base_time': base_time,
+                        'avg_word_duration': avg_word_duration
                     }
                 }
-                
+
                 # Get remaining text after "start review"
                 remaining_text = text[start_idx + len("start review"):].strip()
                 remaining_text = re.sub(r'^[.\s]+', '', remaining_text)
                 if remaining_text:
                     buffer_text.append(remaining_text)
-            
+
             # Detect "stop review" or "end review"
-            elif current_review and stop_review_pattern.search(lower_text):
+            elif current_review and "stop review" in lower_text or "end review" in lower_text:
                 stop_idx = lower_text.find("stop review")
                 if stop_idx == -1:
                     stop_idx = lower_text.find("end review")
@@ -431,6 +468,47 @@ def extract_frame(video_path, timestamp, output_path):
         logging.error(f"Unexpected error in extract_frame: {str(e)}")
         raise
 
+def extract_frame_with_timer(video_path, timestamp, output_path):
+    try:
+        logging.info(f"Extracting frame at {timestamp} seconds from {video_path}")
+        
+        # Extract frame as before
+        extract_frame(video_path, timestamp, output_path)
+        
+        # Use OCR to read the timer from the frame
+        try:
+            image = Image.open(output_path)
+            # Assuming timer is in top-right corner, crop that area
+            width, height = image.size
+            timer_area = image.crop((width-200, 0, width, 100))  # Adjust coordinates as needed
+            
+            # Read text from timer area
+            timer_text = pytesseract.image_to_string(timer_area)
+            
+            # Parse timer text to get actual timestamp
+            # Assuming timer format is MM:SS
+            if timer_text:
+                minutes, seconds = map(int, timer_text.strip().split(':'))
+                actual_timestamp = minutes * 60 + seconds
+                
+                logging.info(f"""
+                Timer detection:
+                - Expected time: {int(timestamp//60)}:{int(timestamp%60):02d}
+                - Detected time: {minutes}:{seconds:02d}
+                - Timer text: {timer_text}
+                """)
+                
+                return actual_timestamp
+                
+        except Exception as e:
+            logging.error(f"Error reading timer from frame: {e}")
+            
+        return timestamp  # Fallback to original timestamp if OCR fails
+        
+    except Exception as e:
+        logging.error(f"Error in extract_frame_with_timer: {str(e)}")
+        raise
+
 def generate_title(summary):
     try:
         logging.info(f"Generating title for summary: {summary[:100]}...")  # Log first 100 chars of summary
@@ -456,32 +534,32 @@ def generate_title(summary):
 def save_issue_data(video_id, issue_number, review_data, video_path):
     try:
         logging.info(f"Saving issue data for video {video_id}, issue {issue_number}")
-        logging.info(f"Review data: Start={review_data['start']:.2f}, End={review_data['end']:.2f}, Title={review_data['title']}")
         
+        # Create issue folder
         issue_folder = os.path.join(PROJECTS_FOLDER, f'video_{video_id}', f'issue_{issue_number}')
         os.makedirs(issue_folder, exist_ok=True)
-
+        
+        # Extract frame and get actual timestamp from timer
+        image_filename = f'image_{issue_number}.jpg'
+        image_path = os.path.join(issue_folder, image_filename)
+        actual_timestamp = extract_frame_with_timer(video_path, review_data['start'], image_path)
+        
+        # Update the review data with the actual timestamp
+        review_data['start'] = actual_timestamp
+        
         # Use the title from review data
         title = review_data['title']
         
-        # Prepare the issue summary - removed the duplicate text
+        # Prepare the issue summary without "Timestamp:"
         issue_summary = (
             f"{title}\n\n"
-            f"Timestamp: {int(review_data['start']//60)}:{int(review_data['start']%60):02d}\n\n"
+            f"{int(review_data['start']//60)}:{int(review_data['start']%60):02d}\n\n"
             f"{review_data['text']}"
         )
 
         # Save the issue summary
         with open(os.path.join(issue_folder, 'summary.txt'), 'w') as f:
             f.write(issue_summary)
-
-        # Extract and save the frame at the screenshot time
-        image_filename = f'image_{issue_number}.jpg'
-        image_path = os.path.join(issue_folder, image_filename)
-        
-        # Use the exact start time for screenshot
-        screenshot_time = review_data.get('screenshot_time', review_data['start'])
-        extract_frame(video_path, screenshot_time, image_path)
 
         # Save issue to database
         relative_image_path = os.path.join(f'video_{video_id}', f'issue_{issue_number}', image_filename)
@@ -525,7 +603,7 @@ def process_video(video_id):
             
             video.status = 'Analyzing Transcript'
             db.session.commit()
-            reviews = analyze_transcript(transcript, video_info, audio_info)
+            reviews = analyze_transcript(transcript)
             
             video.status = 'Processing Issues'
             db.session.commit()
