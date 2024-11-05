@@ -248,10 +248,18 @@ def analyze_transcript(transcript, video_info, audio_info):
                     time_per_word = segment_duration / words_count if words_count > 0 else 0
                     
                     # Calculate start time based on word position
-                    start_time = segment['start'] + (start_review_word_idx * time_per_word)
+                    base_time = segment['start'] + (start_review_word_idx * time_per_word)
                     
-                    # Add offset for saying "start review"
-                    start_time += 0.8  # Increased offset to account for phrase duration
+                    # Add offset for saying "start review" (1 second)
+                    start_time = base_time + 1.0
+                    
+                    # Ensure we don't start before the actual phrase
+                    if start_time < base_time + 0.8:  # Minimum time to say "start review"
+                        start_time = base_time + 0.8
+                    
+                    # Add a small buffer to prevent early triggers
+                    if start_time < segment['start'] + 0.5:
+                        start_time = segment['start'] + 0.5
                     
                     logging.info(f"""
                     Found 'start review':
@@ -259,12 +267,12 @@ def analyze_transcript(transcript, video_info, audio_info):
                     - Full text: "{text}"
                     - Word index: {start_review_word_idx} of {words_count}
                     - Segment start: {segment['start']:.2f}
+                    - Base time: {base_time:.2f}
+                    - Final start time: {start_time:.2f}
                     - Segment end: {segment['end']:.2f}
-                    - Time per word: {time_per_word:.2f}
-                    - Calculated start: {start_time:.2f}
                     """)
                 else:
-                    start_time = segment['start']
+                    start_time = segment['start'] + 0.8  # Default offset if word index not found
                 
                 # Close previous review if exists
                 if current_review:
@@ -284,7 +292,7 @@ def analyze_transcript(transcript, video_info, audio_info):
                         'segment_start': segment['start'],
                         'word_index': start_review_word_idx,
                         'total_words': len(words),
-                        'time_per_word': time_per_word
+                        'base_time': base_time
                     }
                 }
                 
@@ -1220,3 +1228,28 @@ def verify_video_format(video_path):
     except Exception as e:
         logging.error(f"Error verifying video format: {e}")
         raise
+
+# Add this function to check permissions
+def ensure_upload_permissions():
+    try:
+        if not os.path.exists(UPLOAD_FOLDER):
+            os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+        
+        # Test write permissions with a temp file
+        test_file = os.path.join(UPLOAD_FOLDER, '.test')
+        try:
+            with open(test_file, 'w') as f:
+                f.write('test')
+            os.remove(test_file)
+        except Exception as e:
+            logging.error(f"Upload directory is not writable: {e}")
+            raise
+            
+        logging.info(f"Upload directory {UPLOAD_FOLDER} is writable")
+    except Exception as e:
+        logging.error(f"Error checking upload permissions: {e}")
+        raise
+
+# Add this to your app initialization
+with app.app_context():
+    ensure_upload_permissions()
