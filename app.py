@@ -123,7 +123,7 @@ def extract_audio(video_path, audio_path):
             '-y',  # Overwrite output file
             '-i', video_path,
             '-vn',  # Disable video
-            '-acodec', 'pcm_s16le',  # Use PCM format
+            '-acodec', 'libmp3lame',  # Use PCM format
             '-ar', '44100',  # Set sample rate
             '-ac', '2',  # Set audio channels
             '-copyts',  # Copy timestamps
@@ -215,7 +215,7 @@ def get_precise_timestamps(audio_path, transcript):
         subprocess.run([
             'ffmpeg', '-y',
             '-i', audio_path,
-            '-acodec', 'pcm_s16le',
+            '-acodec', 'libmp3lame',
             '-ar', '16000',
             '-ac', '1',
             temp_wav
@@ -551,11 +551,7 @@ def save_issue_data(video_id, issue_number, review_data, video_path):
         title = review_data['title']
         
         # Prepare the issue summary without "Timestamp:"
-        issue_summary = (
-            f"{title}\n\n"
-            f"{int(review_data['start']//60)}:{int(review_data['start']%60):02d}\n\n"
-            f"{review_data['text']}"
-        )
+        issue_summary = ( f"{review_data['text']}" )
 
         # Save the issue summary
         with open(os.path.join(issue_folder, 'summary.txt'), 'w') as f:
@@ -645,9 +641,6 @@ def async_process_video(video_id):
     
     threading.Thread(target=run_in_app_context).start()
 
-# ... (rest of your imports and configurations)
-
-# ... (your existing route functions)
 
 
 def get_projects(token):
