@@ -7,7 +7,6 @@ import json
 from flask import Flask, request, render_template, jsonify, redirect, url_for, escape, send_from_directory, session, flash
 from werkzeug.utils import secure_filename
 from pydub import AudioSegment
-import whisper
 import openai
 from dotenv import load_dotenv
 import subprocess
@@ -21,12 +20,14 @@ from requests_oauthlib import OAuth2Session
 import requests
 import pprint
 from functools import wraps
-import torch
 import pytesseract
 from PIL import Image
+import assemblyai as aai
+from time import sleep
 
 # Load environment variables
 load_dotenv()
+aai.settings.api_key = os.getenv('ASSEMBLYAI_API_KEY')
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -163,43 +164,65 @@ def transcribe_audio(audio_path):
     try:
         logging.info(f"Starting transcription of audio from {audio_path}")
         
-        # Verify audio file exists and is readable
-        if not os.path.exists(audio_path):
-            raise FileNotFoundError(f"Audio file not found: {audio_path}")
+        # Create transcription config
+        config = aai.TranscriptionConfig(
+            word_boost=["start review", "stop review", "end review"],
+            boost_param="high"
+        )
         
-        # Load Whisper model with explicit device selection
-        logging.info("Loading Whisper model...")
-        try:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            logging.info(f"Using device: {device}")
-            model = whisper.load_model('base', device=device)
-            logging.info("Whisper model loaded successfully")
-        except Exception as e:
-            logging.error(f"Error loading Whisper model: {e}")
-            raise
+        # Upload the file
+        logging.info("Uploading audio file to AssemblyAI...")
+        transcript = aai.Transcriber().transcribe(
+            audio_path,
+            config=config
+        )
+
+        # Wait for transcription to complete
+        while transcript.status != 'completed':
+            if transcript.status == 'error':
+                raise RuntimeError(f"Transcription failed: {transcript.error}")
+            logging.info(f"Transcription status: {transcript.status}")
+            sleep(3)
+            transcript = aai.Transcriber().get_transcript(transcript.id)
+
+        # Convert AssemblyAI format to our expected format
+        result = {
+            'segments': []
+        }
         
-        # Perform transcription
-        logging.info("Starting transcription...")
-        try:
-            result = model.transcribe(
-                audio_path,
-                verbose=True,
-                fp16=False
-            )
+        # Group words into segments
+        current_segment = {
+            'start': 0,
+            'end': 0,
+            'text': '',
+            'words': []
+        }
+        
+        for word in transcript.words:
+            # Start a new segment if more than 1 second gap
+            if current_segment['words'] and (word.start / 1000 - current_segment['end']) > 1:
+                current_segment['text'] = ' '.join(w.text for w in current_segment['words'])
+                result['segments'].append(current_segment)
+                current_segment = {
+                    'start': word.start / 1000,  # Convert from milliseconds to seconds
+                    'end': word.end / 1000,
+                    'text': '',
+                    'words': [word]
+                }
+            else:
+                current_segment['words'].append(word)
+                current_segment['end'] = word.end / 1000
+
+        # Add the last segment
+        if current_segment['words']:
+            current_segment['text'] = ' '.join(w.text for w in current_segment['words'])
+            result['segments'].append(current_segment)
+
+        # Log segments for debugging
+        for segment in result['segments']:
+            logging.info(f"Segment: {segment['start']:.3f}-{segment['end']:.3f}: {segment['text']}")
             
-            # Verify transcription result
-            if not result or 'segments' not in result:
-                raise ValueError("Transcription result is invalid or empty")
-            
-            # Log segments for debugging
-            for segment in result['segments']:
-                logging.info(f"Segment: {segment['start']:.3f}-{segment['end']:.3f}: {segment['text']}")
-            
-            return result
-            
-        except Exception as e:
-            logging.error(f"Error during transcription: {e}")
-            raise
+        return result
             
     except Exception as e:
         logging.error(f"Error in transcribe_audio: {str(e)}")
@@ -262,131 +285,108 @@ def analyze_transcript(transcript):
         current_review = None
         buffer_text = []
 
-        # Calculate average speaking rate across all segments
-        total_words = sum(len(segment['text'].split()) for segment in segments)
-        total_duration = sum(segment['end'] - segment['start'] for segment in segments)
-        avg_word_duration = total_duration / total_words if total_words > 0 else 0.3
-        
-        logging.info(f"Average word duration: {avg_word_duration:.3f} seconds")
-
-        for i, segment in enumerate(segments):
+        for segment in segments:
             text = segment['text'].strip()
             lower_text = text.lower()
             
+            # Look for exact phrase "start review" with word-level timing
             if "start review" in lower_text:
+                # Find the exact timestamp of "start review" phrase
                 start_idx = lower_text.find("start review")
-                words = text.split()
-                words_before = text[:start_idx].split()
+                text_before = text[:start_idx].strip()
                 
-                # Calculate segment-specific word timing
-                segment_duration = segment['end'] - segment['start']
-                segment_words = len(words)
-                segment_word_duration = segment_duration / segment_words if segment_words > 0 else avg_word_duration
-                
-                # Use the more accurate of average and segment-specific timing
-                word_duration = min(segment_word_duration, avg_word_duration * 1.5)
-                
-                # Calculate base time using word position
-                base_time = segment['start'] + (len(words_before) * word_duration)
-                
-                # Add time for saying "start review" based on speaking rate
-                start_review_duration = word_duration * 2  # "start review" is typically 2 words
-                start_time = base_time + start_review_duration
-                
-                # Verify timing is reasonable
-                if start_time > segment['end']:
-                    # If calculated time exceeds segment, use proportion-based timing
-                    proportion = start_idx / len(text)
-                    start_time = segment['start'] + (segment_duration * proportion) + start_review_duration
-                
-                logging.info(f"""
-                Detailed timing calculation:
-                - Segment {i}: {segment['start']:.2f}-{segment['end']:.2f}
-                - Text: "{text}"
-                - Words before 'start review': {len(words_before)}
-                - Word duration: {word_duration:.3f}s
-                - Base time: {base_time:.2f}s
-                - Start review duration: {start_review_duration:.2f}s
-                - Final start time: {start_time:.2f}s
-                """)
-
-                # Close previous review if exists
+                # If we have a current review, close it
                 if current_review:
-                    current_review['end'] = start_time
+                    current_review['end'] = segment['start']
                     current_review['text'] = ' '.join(buffer_text)
                     if current_review['text'].strip():
                         reviews.append(current_review)
                     buffer_text = []
 
-                # Start new review
+                # Calculate precise start time
+                words = segment.get('words', [])
+                start_time = segment['start']
+                
+                # Find the exact word that starts "start review"
+                for i, word in enumerate(words):
+                    if word.text.lower() == "start" and \
+                       i + 1 < len(words) and \
+                       words[i + 1].text.lower() == "review":
+                        # Add 1 second to compensate for the "start review" command
+                        start_time = (word.end / 1000) + 1  # Use end time of "review" + 1 second
+                        break
+
+                # Start new review with adjusted time
                 current_review = {
                     'start': start_time,
                     'text': [],
                     'end': None,
-                    'segment_index': i,
-                    'timing_details': {
-                        'segment_start': segment['start'],
-                        'word_duration': word_duration,
-                        'words_before': len(words_before),
-                        'base_time': base_time,
-                        'avg_word_duration': avg_word_duration
-                    }
+                    'summary': ''  # Initialize summary field
                 }
 
-                # Get remaining text after "start review"
+                # Add any remaining text after "start review"
                 remaining_text = text[start_idx + len("start review"):].strip()
-                remaining_text = re.sub(r'^[.\s]+', '', remaining_text)
                 if remaining_text:
                     buffer_text.append(remaining_text)
 
-            # Detect "stop review" or "end review"
-            elif current_review and "stop review" in lower_text or "end review" in lower_text:
-                stop_idx = lower_text.find("stop review")
-                if stop_idx == -1:
-                    stop_idx = lower_text.find("end review")
+            elif current_review and ("stop review" in lower_text or "end review" in lower_text):
+                stop_phrase = "stop review" if "stop review" in lower_text else "end review"
+                stop_idx = lower_text.find(stop_phrase)
                 
-                # Include any text before "stop review" or "end review" in buffer
+                # Include text before the stop phrase
                 if stop_idx > 0:
                     text_before_stop = text[:stop_idx].strip()
                     if text_before_stop:
                         buffer_text.append(text_before_stop)
                 
-                # Finalize the current review entry
-                current_review['end'] = segment['end']
+                # Find exact end time
+                words = segment.get('words', [])
+                end_time = segment['end']
+                
+                for word in words:
+                    if word.text.lower() in ["stop", "end"] and \
+                       len(words) > words.index(word) and \
+                       words[words.index(word) + 1].text.lower() == "review":
+                        end_time = word.start / 1000  # Use start of "stop/end"
+                        break
+
+                current_review['end'] = end_time
                 current_review['text'] = ' '.join(buffer_text)
+                
+                # Generate summary and title
                 if current_review['text'].strip():
+                    # Create a clear summary format
+                    current_review['summary'] = current_review['text']
+                    current_review['title'] = generate_title(current_review['text'])
                     reviews.append(current_review)
+                
                 current_review = None
                 buffer_text = []
             
-            # Buffer text within an ongoing review session
             elif current_review:
-                cleaned_text = text.strip()
-                if cleaned_text:
-                    buffer_text.append(cleaned_text)
+                buffer_text.append(text)
 
-        # Finalize any open review if transcript ended before closing
+        # Handle any unclosed review
         if current_review:
             current_review['end'] = segments[-1]['end']
             current_review['text'] = ' '.join(buffer_text)
             if current_review['text'].strip():
+                current_review['summary'] = current_review['text']
+                current_review['title'] = generate_title(current_review['text'])
                 reviews.append(current_review)
 
-        # Process reviews and generate titles
+        # Process reviews
         processed_reviews = []
         for review in reviews:
             if not review['text'].strip():
                 continue
             
-            review['title'] = generate_title(review['text'])
-            review['screenshot_time'] = review['start']
-            
             logging.info(f"""
             Processed review:
-            - Title: {review['title']}
+            - Title: {review.get('title', 'No title generated')}
             - Start: {review['start']:.3f} ({int(review['start']//60)}:{int(review['start']%60):02d})
             - End: {review['end']:.3f} ({int(review['end']//60)}:{int(review['end']%60):02d})
-            - Text: {review['text'][:100]}...
+            - Summary: {review['summary'][:100]}...
             """)
             
             processed_reviews.append(review)
@@ -511,14 +511,14 @@ def extract_frame_with_timer(video_path, timestamp, output_path):
 
 def generate_title(summary):
     try:
-        logging.info(f"Generating title for summary: {summary[:100]}...")  # Log first 100 chars of summary
+        logging.info(f"Generating title for summary: {summary[:100]}...")
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are a helpful assistant that summarizes text in 5 words."},
-                {"role": "user", "content": f"Summarize the following in 5 words:\n\n{summary}"}
+                {"role": "system", "content": "You are a helpful assistant that creates concise, descriptive titles for bug reports and issues. Create a title that captures the main problem or feedback point."},
+                {"role": "user", "content": f"Create a clear, specific title (maximum 10 words) for this issue:\n\n{summary}"}
             ],
-            max_tokens=20,
+            max_tokens=50,
             n=1,
             temperature=0.7,
         )
@@ -529,7 +529,7 @@ def generate_title(summary):
         return title
     except Exception as e:
         logging.error(f"Error generating title with OpenAI: {e}")
-        return None
+        return "Issue " + summary[:50] + "..."  # Fallback title
 
 def save_issue_data(video_id, issue_number, review_data, video_path):
     try:
@@ -547,11 +547,17 @@ def save_issue_data(video_id, issue_number, review_data, video_path):
         # Update the review data with the actual timestamp
         review_data['start'] = actual_timestamp
         
-        # Use the title from review data
-        title = review_data['title']
+        # Use the title from review data or generate one if missing
+        title = review_data.get('title') or generate_title(review_data['text'])
         
-        # Prepare the issue summary without "Timestamp:"
-        issue_summary = ( f"{review_data['text']}" )
+        # Get the summary text, using either the summary field or the full text
+        summary_text = review_data.get('summary') or review_data['text']
+        
+        # Clean up the summary text - remove leading/trailing periods and whitespace
+        summary_text = summary_text.strip(' .')
+        
+        # Create a formatted summary with title and description
+        issue_summary = f"{title}\n\n{summary_text}"
 
         # Save the issue summary
         with open(os.path.join(issue_folder, 'summary.txt'), 'w') as f:
@@ -560,7 +566,7 @@ def save_issue_data(video_id, issue_number, review_data, video_path):
         # Save issue to database
         relative_image_path = os.path.join(f'video_{video_id}', f'issue_{issue_number}', image_filename)
         issue = Issue(
-            summary=issue_summary,
+            summary=issue_summary,  # Store the full formatted summary
             start_timestamp=review_data['start'],
             end_timestamp=review_data['end'],
             video_id=video_id,
@@ -569,9 +575,15 @@ def save_issue_data(video_id, issue_number, review_data, video_path):
         db.session.add(issue)
         db.session.commit()
         
-        logging.info(f"Issue data saved successfully for video {video_id}, issue {issue_number}")
-        logging.info(f"Image saved at: {image_path}")
-        logging.info(f"Relative image path: {relative_image_path}")
+        logging.info(f"""
+        Issue data saved:
+        - Video ID: {video_id}
+        - Issue Number: {issue_number}
+        - Title: {title}
+        - Summary: {summary_text[:100]}...
+        - Start Time: {review_data['start']}
+        - End Time: {review_data['end']}
+        """)
 
     except Exception as e:
         logging.error(f"Error saving issue data: {e}")

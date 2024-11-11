@@ -320,9 +320,9 @@
             <p><strong>End Timestamp:</strong> {{ '%d:%02d'|format(issue.end_timestamp//60, issue.end_timestamp%60|int)
                 }}</p>
             {% endif %}
-            <button type="button" class="submit-button" onclick="submitIssue({{ issue.id }})">Submit to
+            <button type="button" class="submit-button" onclick="submitIssue('{{ issue.id }}')">Submit to
                 Basecamp</button>
-            <button type="button" class="delete-button" onclick="deleteIssue({{ issue.id }})">Delete</button>
+            <button type="button" class="delete-button" onclick="deleteIssue('{{ issue.id }}')">Delete</button>
             <div class="submit-status" id="submit-status-{{ issue.id }}"></div>
             {% for image_path in issue.get_image_paths() %}
             <img src="{{ url_for('serve_project_file', filename=image_path) }}" alt="Screenshot of issue"
