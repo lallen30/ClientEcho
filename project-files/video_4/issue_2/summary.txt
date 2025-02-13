@@ -1,0 +1,3 @@
+"Blank Avatar/Logo Area in Top Left Corner"
+
+The avatar or logo area in the top left is blank

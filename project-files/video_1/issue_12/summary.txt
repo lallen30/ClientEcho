@@ -1,0 +1,3 @@
+Simplify input to show total units of hay available.
+
+I should be able just to have total number of units available. I should not have to say what type of hay, cut, date, bale type, bale weight, bale size, forge or any other thing. Only the amount

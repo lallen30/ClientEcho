@@ -1,0 +1,3 @@
+Issue: Automatic zoom out when interacting with elements at zoomed level
+
+When I zoom in so I can see an area, if I click on the dot to do a poly or a trail or whatever else, it automatically zooms out and I need it to stay at the level I zoom. Win. End review

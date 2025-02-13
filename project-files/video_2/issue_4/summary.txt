@@ -1,0 +1,3 @@
+Error: Unable to Invite Due to Club Association Issue
+
+It says I can't invite somebody because I'm not associated with a club but I am in a club

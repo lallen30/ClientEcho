@@ -1,0 +1,3 @@
+Issue: Text appears upside down at bottom, needs review
+
+Can we fix it so that the text isn't upside down at the bottom? I don't know if we can. And review

@@ -1,0 +1,3 @@
+Inaccurate Waypoint Name Display During Review Process
+
+I'm doing a waypoint. It shouldn't be title example that should say like add a waypoint or it should be the waypoint name but title example shouldn't be there. End review

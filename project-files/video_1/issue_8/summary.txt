@@ -1,0 +1,3 @@
+"Remove 'Public' or 'Private' Label from Listing Card"
+
+Remove the word public or private in the listing card. We don't need to see that

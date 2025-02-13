@@ -1,0 +1,3 @@
+"Bug: Dog paw icon leads to wrong function"
+
+The dog paw should take you to the GPS add on tracker service. It isn't to put a marker down on the map. And review

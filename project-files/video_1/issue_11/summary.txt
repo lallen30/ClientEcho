@@ -1,0 +1,3 @@
+"Storage Location Unit Type Selection Shape Issue"
+
+In storage location, select unit type should be square or round

@@ -1,0 +1,3 @@
+Need ability to sort view field history by date.
+
+So I need a way to search the Once you send me over that spreadsheet, view field history, I need to be able to sort by newest, oldest, that kind of thing. Right now it's fixed

@@ -1,0 +1,3 @@
+"New account login requires bank account setup prompt"
+
+After I log in with a new account, it needs to ask me to set up my bank account

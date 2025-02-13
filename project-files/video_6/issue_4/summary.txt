@@ -1,0 +1,3 @@
+Improve selected date background color to gray in review.
+
+The selected date should be a gray background and not black. In review

@@ -1,0 +1,3 @@
+Event goal notes not displaying on homepage log.
+
+No matter if I add event goal note anything I can add to my team or to myself and it will not show up on the homepage log

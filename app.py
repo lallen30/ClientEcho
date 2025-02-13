@@ -166,7 +166,7 @@ def transcribe_audio(audio_path):
         
         # Create transcription config
         config = aai.TranscriptionConfig(
-            word_boost=["start review", "stop review", "end review"],
+            word_boost=["start review", "stop review", "end review", "and review", "in review"],
             boost_param="high"
         )
         
@@ -1259,10 +1259,11 @@ def archive_issue(issue_id):
     try:
         # Option 1: Remove the issue from the database
         db.session.delete(issue)
-        
-        # Option 2: Archive the issue (if you want to keep a record)
-        # issue.archived = True
-        
+        db.session.commit()
+        return jsonify({'message': 'Issue archived successfully'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
         db.session.commit()
         return jsonify({"message": "Issue archived successfully"}), 200
     except Exception as e:
@@ -1336,3 +1337,27 @@ def ensure_upload_permissions():
 # Add this to your app initialization
 with app.app_context():
     ensure_upload_permissions()
+
+def clean_summary(text):
+    # List of trigger words to remove
+    trigger_words = [
+        "start review",
+        "stop review", 
+        "end review",
+        "and review",
+        "in review"
+    ]
+    
+    # Remove each trigger word from the text
+    cleaned_text = text.lower()
+    for trigger in trigger_words:
+        cleaned_text = cleaned_text.replace(trigger.lower(), "")
+    
+    # Clean up any extra whitespace
+    cleaned_text = " ".join(cleaned_text.split())
+    
+    # Restore first character capitalization
+    if cleaned_text:
+        cleaned_text = cleaned_text[0].upper() + cleaned_text[1:]
+        
+    return cleaned_text

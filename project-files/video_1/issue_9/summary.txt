@@ -1,0 +1,3 @@
+Remove India Testing Locations for North America Testing.
+
+Remove the India testing locations only North America. Thank you

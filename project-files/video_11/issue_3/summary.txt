@@ -1,0 +1,3 @@
+Issue: Unable to cancel adding a waypoint; incorrect label displayed
+
+If I click on add a waypoint and I change my mind, if I click on the X and it goes away, it still makes me put a waypoint down. There needs to be a way to cancel. Maybe under save it can say cancel or something. Also, why does it say conclusion? Shouldn't it say location or I don't know what it is

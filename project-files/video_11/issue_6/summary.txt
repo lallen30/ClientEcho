@@ -1,0 +1,3 @@
+"Request: Ability to Fine-Tune Polygon Corners"
+
+It would be really nice if I could move the corners and fine tune them on my polygon. And review

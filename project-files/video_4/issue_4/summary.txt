@@ -1,0 +1,3 @@
+Issue: Persistent "No Token" Error Prompts Bank Account Setup Bug
+
+Every time I come here it says no token and it finally asked me to set up bank account

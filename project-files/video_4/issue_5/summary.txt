@@ -1,0 +1,3 @@
+Unwanted Autoconnection to Aero Sync Bank in Account Setup
+
+It has autoconnected me to Aero Sync bank and it should not be doing that. Something is messed up but you can't make a new account. It's auto connecting banks. It's doing a whole bunch of weird things

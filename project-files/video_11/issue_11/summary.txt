@@ -1,0 +1,3 @@
+Issue: Multiple maps per group, weather forecast feature needed.
+
+There are supposed to be able to have multiple maps. So the idea is I can go here, see my current map and then I can go into groups and I can save that group in here. But if I click on a different group name and then go back, I should get a new map for that group. Each group is like you and a group of friends and it saves that map in that location. Also there should be a place somewhere here where I can see what the weather is for this day and then I should be able to change that date and see the forecast on the wireframes. There should be some sort of a weather icon. End review

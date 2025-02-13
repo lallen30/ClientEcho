@@ -1,1 +1,3 @@
-The term "sub-to-do" is incorrectly hyphenated.
+Unable to complete subscription process.
+
+I tried to do a subscription and it would not work

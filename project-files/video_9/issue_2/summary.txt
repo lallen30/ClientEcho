@@ -1,0 +1,3 @@
+Title: Navigation and Functionality Issues with Screen Interface
+
+This is a screen. It has all the functions inside of it. View all calendar appointments will take you to the calendar. Users can increase the rows. They can change what page it is. You can see the stats that go in it. Make sure you use the design that's here. Dashboard will go to the dashboard at the top. Calendar will go to the calendar at the top. Connections at the top will take you to the directory. Messages at the top will take you to chat, and Settings at the top takes you to settings. If you click on the icon in the top right, that'll take you to your personal profile screen. Stop review. Okay, get rid of the end of recording

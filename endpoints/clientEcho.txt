@@ -1,6 +1,0 @@
-@app.route('/')
-@app.route('/project/new', methods=['POST'])
-@app.route('/project/<int:project_id>')
-@app.route('/project/<int:project_id>/upload', methods=['POST'])
-@app.route('/video/<int:video_id>/status')
-@app.route('/projects/<path:filename>')

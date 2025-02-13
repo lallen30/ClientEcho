@@ -1,0 +1,3 @@
+"In-App Subscription Works, Sign-Up Subscription Fails"
+
+If I do a subscription inside the app, it will work. If I do a subscription on sign up, it will not work
